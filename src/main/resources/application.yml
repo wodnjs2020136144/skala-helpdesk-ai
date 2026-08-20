@@ -1,0 +1,72 @@
+spring:
+  application:
+    name: skala-helpdesk-ai
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/helpdesk
+    username: helpdesk
+    password: helpdesk
+
+  ai:
+    openai:
+      # 키는 소스에 넣지 않는다.  export OPENAI_API_KEY="sk-..."
+      api-key: ${OPENAI_API_KEY:not-set}
+      chat:
+        options:
+          model: gpt-4o-mini
+          temperature: 0.2
+      embedding:
+        options:
+          model: text-embedding-3-small
+
+    # 운영에서는 프롬프트 원문 로깅을 반드시 끈다(개인정보가 그대로 쌓인다).
+    chat:
+      observations:
+        log-prompt: false
+      client:
+        observations:
+          log-prompt: false
+
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        dimensions: 1536   # text-embedding-3-small 차원과 반드시 일치(p.313)
+
+# Phase 1(A) — HelpDeskProperties가 이 블록을 바인딩한다. 코드에 상수를 남기지 않는다.
+helpdesk:
+  rag:
+    top-k: 5
+    threshold: 0.5   # A가 Phase 2 인제스트 이후 실측으로 조정한다 — day3-consult-agent 트러블슈팅 참고
+  memory:
+    max-messages: 20
+  tool:
+    max-calls: 5
+
+server:
+  port: 8080
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+    display-request-duration: true
+    doc-expansion: none
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    tags:
+      application: skala-helpdesk-ai
+
+logging:
+  level:
+    com.skala.helpdesk: DEBUG
+    AI_TOOL_AUDIT: INFO

@@ -1,0 +1,83 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.1.0'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.skala'
+version = '1.0.0'
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(21) }
+}
+
+// 편집기·OS 가 달라도 한글 주석·프롬프트가 깨지지 않게 인코딩을 고정한다.
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+tasks.withType(Test).configureEach { systemProperty 'file.encoding', 'UTF-8' }
+tasks.named('bootRun') { jvmArgs = ['-Dfile.encoding=UTF-8'] }
+
+repositories { mavenCentral() }
+
+// HelpDesk AI 종합 실습 — SKALA 학사 안내 상담 에이전트
+// (RAG + Tool Calling + Advisor 체인 + 승인 게이트 + 인가 + JDBC 메모리 + pgvector + 계측)
+// 2인 분담 기준: docs/분업-역할표.md 참조 — A(AI·RAG·플랫폼) / B(업무 API·Tool·보안)
+
+dependencies {
+    // ── 웹 · 문서 · 관찰 ────────────────────────────────────────
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    // Boot 4부터 좌표가 spring-boot-starter-aop → spring-boot-starter-aspectj로 바뀌었다
+    // (day3-consult-agent에서 실컴파일로 확인 — aop는 4.x에 존재하지 않는다).
+    implementation 'org.springframework.boot:spring-boot-starter-aspectj'      // 도구 호출 감사 Aspect
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.6'   // /swagger-ui.html
+    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'                  // /actuator/prometheus (Phase 8)
+
+    // ── 인증·인가 (Phase 7 — B 담당) ───────────────────────────
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+
+    // ── DB 연동 — pgvector·JDBC 대화 메모리가 둘 다 JdbcTemplate 위에서 동작한다 ──
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+    runtimeOnly 'org.postgresql:postgresql'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+    // Boot 4 부터 @WebMvcTest(org.springframework.boot.webmvc.test.autoconfigure) 는
+    // spring-boot-starter-test 가 아니라 이 신규 스타터가 있어야 딸려온다.
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+
+    // ===============================
+    // Spring AI BOM — CLAUDE.md 고정값(Day 1~3과 동일)
+    // ===============================
+    implementation platform(
+        "org.springframework.ai:spring-ai-bom:2.0.0"
+    )
+
+    // ===============================
+    // Spring AI + OpenAI
+    // ===============================
+    implementation 'org.springframework.ai:spring-ai-starter-model-openai'
+
+    // ===============================
+    // RAG — 벡터스토어는 pgvector가 기본이다(종합 실습은 확장 과제가 아니라 필수, p.313).
+    // 좌표는 spring-ai-2-step-samples/step06-rag-pgvector/build.gradle에서 실컴파일로 확인.
+    // ===============================
+    implementation 'org.springframework.ai:spring-ai-starter-vector-store-pgvector'
+
+    // ===============================
+    // QuestionAnswerAdvisor — Phase 1(Advisor 조립)에 필요.
+    // ⚠️ 2.0.0 BOM에서는 spring-ai-advisors-vector-store가 아니라 spring-ai-vector-store-advisor다
+    // (day1/day2/day3-consult-agent 세 리포에서 동일하게 실컴파일로 확정한 값).
+    // ===============================
+    implementation 'org.springframework.ai:spring-ai-vector-store-advisor'
+
+    // ===============================
+    // JDBC 대화 메모리 (Phase 5) — 재시작해도 대화가 유지돼야 한다(p.319).
+    // 좌표명은 spring-ai-2-step-samples/step05-memory/build.gradle 주석이 지목한 값이고,
+    // `./gradlew build`로 2.0.0 BOM에서 실제로 해석됨을 확인했다(2026-08-20).
+    // ===============================
+    implementation 'org.springframework.ai:spring-ai-starter-model-chat-memory-repository-jdbc'
+}
+
+tasks.named('test') { useJUnitPlatform() }
+
+springBoot { mainClass = 'com.skala.helpdesk.HelpDeskApplication' }
