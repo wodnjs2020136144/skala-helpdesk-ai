@@ -26,6 +26,13 @@ spring:
       client:
         observations:
           log-prompt: false
+      # JdbcChatMemoryRepository 기본값은 "embedded"라 H2 등에서만 자동으로 스키마를 만든다.
+      # 우리는 외부 pgvector(Postgres)를 쓰므로 always로 켜지 않으면 spring_ai_chat_memory
+      # 테이블이 없어 첫 대화부터 500이 난다(Phase 5, 검증 시나리오 ①·③ 실측 중 발견).
+      memory:
+        repository:
+          jdbc:
+            initialize-schema: always
 
     vectorstore:
       pgvector:
