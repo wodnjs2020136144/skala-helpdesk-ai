@@ -36,9 +36,10 @@ public class RequestTools {
     }
 
     @Tool(description = "인증된 학생 본인의 현재 수강 과목에 대한 수강철회를 접수한다. "
-            + "사용자가 '수강철회', '과목 취소'를 요청하면 사용한다. 접수만 생성하며 "
+            + "사용자가 '수강철회', '과목 취소'를 요청하면 과목 코드뿐 아니라 과목명으로 말해도 반드시 사용한다. "
+            + "접수만 생성하며 "
             + "즉시 처리되지 않고 PENDING 상태로 남는다. 실제 철회는 지도교수·학사팀 승인 후 처리된다.")
-    public String requestDrop(@ToolParam(description = "철회할 과목코드. 예: CS201") String courseCode,
+    public String requestDrop(@ToolParam(description = "철회할 과목 코드 또는 과목명. 예: CS201, 알고리즘") String courseCode,
                               @ToolParam(description = "수강철회 사유. 예: 개인 일정 변경") String reason,
                               ToolContext context) {
         markToolUsed(context);
@@ -53,17 +54,20 @@ public class RequestTools {
             return "수강철회 사유를 입력해 주세요.";
         }
 
-        String normalizedCourseCode = courseCode.trim().toUpperCase(Locale.ROOT);
+        String courseIdentifier = courseCode.trim();
+        String normalizedCourseCode = courseIdentifier.toUpperCase(Locale.ROOT);
         return records.findByIdAndOwnerId(studentId, studentId)
                 .map(record -> {
-                    boolean enrolled = record.courses().stream()
-                            .anyMatch(course -> course.courseCode().equals(normalizedCourseCode)
-                                    && course.status() == EnrollmentStatus.ENROLLED);
-                    if (!enrolled) {
+                    var enrollment = record.courses().stream()
+                            .filter(course -> course.status() == EnrollmentStatus.ENROLLED)
+                            .filter(course -> course.courseCode().equals(normalizedCourseCode)
+                                    || course.courseName().equalsIgnoreCase(courseIdentifier))
+                            .findFirst();
+                    if (enrollment.isEmpty()) {
                         return "해당 수강 과목을 찾을 수 없습니다.";
                     }
 
-                    var request = requests.create(studentId, normalizedCourseCode, reason.trim());
+                    var request = requests.create(studentId, enrollment.get().courseCode(), reason.trim());
                     return "수강철회를 접수했습니다(신청번호 %s, 상태 %s). "
                             .formatted(request.no(), request.status())
                             + "즉시 처리되지 않으며 지도교수·학사팀 승인 대기 중입니다.";

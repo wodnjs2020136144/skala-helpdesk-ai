@@ -45,6 +45,15 @@ class RequestToolsTest {
     }
 
     @Test
+    void 과목명으로도_철회_접수를_생성한다() {
+        String result = tools.requestDrop("알고리즘", "개인 일정 변경", context("2021001"));
+
+        assertThat(result).contains("신청번호 WD-0001").contains("상태 PENDING");
+        assertThat(requests.pending()).singleElement()
+                .satisfies(request -> assertThat(request.courseCode()).isEqualTo("CS201"));
+    }
+
+    @Test
     void 수강하지_않는_과목은_철회_접수하지_않는다() {
         String result = tools.requestDrop("CS999", "요청", context("2021001"));
 
