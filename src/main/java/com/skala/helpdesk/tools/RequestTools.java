@@ -1,10 +1,14 @@
 package com.skala.helpdesk.tools;
 
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
+import com.skala.helpdesk.domain.EnrollmentStatus;
 import com.skala.helpdesk.repository.StudentRecordRepository;
 import com.skala.helpdesk.repository.WithdrawalRequestRepository;
 
@@ -31,19 +35,54 @@ public class RequestTools {
         this.requests = requests;
     }
 
-    // TODO(B, Phase 4): description을 채운다. "즉시 처리되지 않는다"는 문구를 명시해야
-    // 모델이 "접수했습니다"로만 답하고 "처리 완료"라고 답하지 않는다.
-    @Tool(description = "TODO(B, Phase 4): 수강철회를 접수한다는 것과, 지도교수 승인 후 처리됨을 명시한다.")
-    public String requestDrop(@ToolParam(description = "TODO(B): 과목코드 파라미터 설명. 예: CS201") String courseCode,
-                              @ToolParam(description = "TODO(B): 철회 사유 파라미터 설명") String reason,
+    @Tool(description = "인증된 학생 본인의 현재 수강 과목에 대한 수강철회를 접수한다. "
+            + "사용자가 '수강철회', '과목 취소'를 요청하면 사용한다. 접수만 생성하며 "
+            + "즉시 처리되지 않고 PENDING 상태로 남는다. 실제 철회는 지도교수·학사팀 승인 후 처리된다.")
+    public String requestDrop(@ToolParam(description = "철회할 과목코드. 예: CS201") String courseCode,
+                              @ToolParam(description = "수강철회 사유. 예: 개인 일정 변경") String reason,
                               ToolContext context) {
-        String studentId = (String) context.getContext().get("studentId");
+        markToolUsed(context);
+        String studentId = studentId(context);
+        if (studentId == null) {
+            return "해당 학번의 학적 정보를 찾을 수 없습니다.";
+        }
+        if (courseCode == null || courseCode.isBlank()) {
+            return "해당 수강 과목을 찾을 수 없습니다.";
+        }
+        if (reason == null || reason.isBlank()) {
+            return "수강철회 사유를 입력해 주세요.";
+        }
+
+        String normalizedCourseCode = courseCode.trim().toUpperCase(Locale.ROOT);
         return records.findByIdAndOwnerId(studentId, studentId)
-                .map(r -> {
-                    var request = requests.create(studentId, courseCode, reason);
-                    return "TODO(B, Phase 4): 접수 완료(신청번호 %s) — 지도교수 승인 후 처리된다는 응답을 정리한다."
-                            .formatted(request.no());
+                .map(record -> {
+                    boolean enrolled = record.courses().stream()
+                            .anyMatch(course -> course.courseCode().equals(normalizedCourseCode)
+                                    && course.status() == EnrollmentStatus.ENROLLED);
+                    if (!enrolled) {
+                        return "해당 수강 과목을 찾을 수 없습니다.";
+                    }
+
+                    var request = requests.create(studentId, normalizedCourseCode, reason.trim());
+                    return "수강철회를 접수했습니다(신청번호 %s, 상태 %s). "
+                            .formatted(request.no(), request.status())
+                            + "즉시 처리되지 않으며 지도교수·학사팀 승인 대기 중입니다.";
                 })
                 .orElse("해당 학번의 학적 정보를 찾을 수 없습니다.");
+    }
+
+    private String studentId(ToolContext context) {
+        Object value = context.getContext().get("studentId");
+        if (!(value instanceof String studentId) || studentId.isBlank()) {
+            return null;
+        }
+        return studentId;
+    }
+
+    private void markToolUsed(ToolContext context) {
+        Object value = context.getContext().get("toolUsed");
+        if (value instanceof AtomicBoolean toolUsed) {
+            toolUsed.set(true);
+        }
     }
 }
