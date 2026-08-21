@@ -1,10 +1,12 @@
 package com.skala.helpdesk.tools;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
-import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
+import com.skala.helpdesk.domain.EnrollmentStatus;
 import com.skala.helpdesk.repository.StudentRecordRepository;
 
 /**
@@ -35,30 +37,60 @@ public class AcademicTools {
         this.records = records;
     }
 
-    // TODO(B, Phase 4): description을 채운다. "내 수강과목", "지금 몇 학점" 같은 표현을
-    // 예시로 넣어야 모델이 언제 이 도구를 쓸지 판단할 수 있다(p.318 도구 설계 리뷰 표).
-    @Tool(description = "TODO(B, Phase 4): 수강 과목·이수 학점을 조회한다는 것을 명시한다.")
-    public String myCourses(@ToolParam(description = "TODO(B): 학번 파라미터 설명") String studentId,
-                            ToolContext context) {
-        String ownerId = (String) context.getContext().get("studentId");
-        return records.findByIdAndOwnerId(studentId, ownerId)
-                .map(r -> "TODO(B, Phase 4): %s의 수강 과목·누적 학점(%d학점)을 정리해 응답한다."
-                        .formatted(r.name(), r.totalCredits()))
+    @Tool(description = "인증된 학생 본인의 현재 수강 과목과 누적 이수 학점을 조회한다. "
+            + "사용자가 '내 수강과목', '지금 몇 학점', '이번 학기 뭐 듣고 있어'처럼 "
+            + "본인의 수강·학점 현황을 물으면 사용한다.")
+    public String myCourses(ToolContext context) {
+        markToolUsed(context);
+        String studentId = studentId(context);
+        if (studentId == null) {
+            return "해당 학번의 학적 정보를 찾을 수 없습니다.";
+        }
+
+        return records.findByIdAndOwnerId(studentId, studentId)
+                .map(r -> {
+                    String courses = String.join(", ", r.courses().stream()
+                            .filter(course -> course.status() == EnrollmentStatus.ENROLLED)
+                            .map(course -> "%s %s(%d학점)".formatted(
+                                    course.courseCode(), course.courseName(), course.credits()))
+                            .toList());
+                    String currentCourses = courses.isEmpty() ? "없음" : courses;
+                    return "현재 수강 과목: %s. 누적 이수 학점: %d학점."
+                            .formatted(currentCourses, r.totalCredits());
+                })
                 .orElse("해당 학번의 학적 정보를 찾을 수 없습니다.");
     }
 
-    // TODO(B, Phase 4): 졸업요건 충족도. RAG가 규정(130학점 등, graduation-requirements.md)을
-    // 답하고 이 도구가 현재 누적 학점·GPA·어학·캡스톤 이수 여부를 반환하면, 모델이 둘을
-    // 조합해 "졸업 가능한지"를 판단한다(검증 시나리오 ③ 멀티턴, p.319).
-    @Tool(description = "TODO(B, Phase 4): 졸업요건 충족도(누적학점·GPA·어학·캡스톤)를 조회한다는 것을 명시한다.")
-    public String gradStatus(@ToolParam(description = "TODO(B): 학번 파라미터 설명") String studentId,
-                             ToolContext context) {
-        String ownerId = (String) context.getContext().get("studentId");
-        return records.findByIdAndOwnerId(studentId, ownerId)
-                .map(r -> "TODO(B, Phase 4): 누적학점=%d, GPA=%.1f, 어학요건=%s, 캡스톤=%s 를 정리해 응답한다."
+    @Tool(description = "인증된 학생 본인의 졸업요건 충족 현황을 조회한다. 사용자가 '나 졸업 가능해', "
+            + "'졸업요건 얼마나 충족했어'처럼 물으면 누적 학점·GPA·어학·캡스톤 현황을 확인할 때 사용한다. "
+            + "최종 졸업 가능 여부는 학사 규정 검색 결과와 함께 판단해야 한다.")
+    public String gradStatus(ToolContext context) {
+        markToolUsed(context);
+        String studentId = studentId(context);
+        if (studentId == null) {
+            return "해당 학번의 학적 정보를 찾을 수 없습니다.";
+        }
+
+        return records.findByIdAndOwnerId(studentId, studentId)
+                .map(r -> "졸업요건 현황: 누적 학점 %d학점, GPA %.1f, 어학요건 %s, 캡스톤 %s."
                         .formatted(r.totalCredits(), r.gpa(),
                                 r.englishRequirementMet() ? "충족" : "미충족",
                                 r.capstoneCompleted() ? "이수" : "미이수"))
                 .orElse("해당 학번의 학적 정보를 찾을 수 없습니다.");
+    }
+
+    private String studentId(ToolContext context) {
+        Object value = context.getContext().get("studentId");
+        if (!(value instanceof String studentId) || studentId.isBlank()) {
+            return null;
+        }
+        return studentId;
+    }
+
+    private void markToolUsed(ToolContext context) {
+        Object value = context.getContext().get("toolUsed");
+        if (value instanceof AtomicBoolean toolUsed) {
+            toolUsed.set(true);
+        }
     }
 }
