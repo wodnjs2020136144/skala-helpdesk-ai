@@ -56,6 +56,7 @@ public class RequestTools {
 
         String courseIdentifier = courseCode.trim();
         String normalizedCourseCode = courseIdentifier.toUpperCase(Locale.ROOT);
+        // 두 인자는 의도적으로 같다. 조회 대상과 인증 소유자를 함께 강제하는 Repository 계약이다.
         return records.findByIdAndOwnerId(studentId, studentId)
                 .map(record -> {
                     var enrollment = record.courses().stream()

@@ -160,8 +160,8 @@ A 소유 설정을 임의로 고치지 않는다.
   - ② 누적 100학점, `toolUsed=true`
   - ④ 알고리즘을 `CS201`로 해석해 `WD-0001/PENDING` 접수, 승인 미실행
   - ⑤ 2021002의 타인 정보 요청 거부, `toolUsed=false`
-- Spring AI 2.0의 Tool Calling을 Memory(200)와 RAG(300) 사이인 order 250으로 배치해
-  JDBC 메모리가 저장하지 않는 도구 중간 메시지는 Tool Calling 내부 이력으로 처리함
+- Spring AI 2.0의 Tool Calling을 Memory(200)와 RAG(300) 뒤인 order 350으로 배치해
+  JDBC 메모리가 저장하지 않는 도구 중간 메시지는 내부 이력으로 처리하고 RAG 중복 실행도 방지함
 
 ### 권장 커밋 분리
 
@@ -188,6 +188,7 @@ A 소유 설정을 임의로 고치지 않는다.
 - [x] 검색 결과가 없으면 빈 목록을 반환한다.
 - [x] `score` 또는 본문이 null이어도 500 오류가 발생하지 않게 처리한다.
 - [x] `topK`가 1 미만이거나 설정 상한보다 큰 입력을 검증한다.
+- [x] 진단 시 `threshold=0`으로 임계값 없이 검색할 수 있게 한다.
 - [x] `preview`는 최대 160자로 제한한다.
 - [x] 같은 문서를 여러 번 인제스트한 뒤 중복 청크가 누적되지 않는지 확인한다.
 - [x] 졸업학점·장학금·학사운영 질문이 각각 기대 문서를 찾는지 확인한다.
@@ -200,16 +201,27 @@ A 소유 설정을 임의로 고치지 않는다.
 
 ### 2026-08-21 실행 결과
 
-- `AdminControllerTest` 7개와 전체 `./gradlew --offline clean build` 통과
-- Advisor와 동일한 유사도 임계값 `0.3`을 청크 검사에도 적용
+- `AdminControllerTest` 9개와 전체 `./gradlew --offline clean build` 통과
+- 기본값은 Advisor와 동일한 임계값 `0.3`을 적용하고, 진단 요청에서 `threshold` 재정의 가능
+- 실제 적용 임계값은 `X-Applied-Similarity-Threshold` 응답 헤더로 확인
+- 운영 `top-k: 5`와 진단 상한 `inspection-max-top-k: 50`을 설정으로 분리
+- 실제 `threshold=0&topK=20` 요청에서 HTTP 200, 결과 20건, 적용 임계값 헤더 `0.0` 확인
 - 실제 pgvector 검색의 최상위 출처 확인
   - 졸업학점 → `graduation-requirements.md`(score 0.528)
   - 장학금 → `scholarship-policy.md`(score 0.477)
   - 휴학 신청 → `학사운영에관한규칙.pdf`(score 0.531)
 - 모든 검색 결과에 `source`, `docType`, `dept`, `version`, `score`, `preview` 포함
 - source별 청크 수가 2·2·2·142·166·18건으로 유지되어 재인제스트 중복 없음 확인
-- 검색어 누락, 숫자가 아닌 `topK`, `topK` 범위 이탈은 벡터 검색 없이 HTTP 400 반환
+- 검색어 누락, 숫자가 아닌 값, `topK`·`threshold` 범위 이탈은 벡터 검색 없이 HTTP 400 반환
 - `/api/admin/**` 권한 적용은 계획대로 Phase 7 TODO로 유지
+
+### PR #2 A 리뷰 반영
+
+- Tool Calling을 order 350으로 옮긴 뒤 실제 학점 조회가 HTTP 200·`toolUsed=true`로 통과
+- 같은 요청 로그에서 RAG 벡터 검색이 1회만 실행되어 도구 반복 중복 검색 제거 확인
+- 시나리오 ⑤는 모델 계층만 검증된 상태로 정정하고 Phase 7 HTTP 인증 재검증을 명시
+- `findByIdAndOwnerId(studentId, studentId)`가 소유자 검증 계약임을 Tool 코드에 주석으로 기록
+- 같은 과목의 중복 PENDING 방지는 보호된 Repository의 원자적 변경이 필요해 별도 과제로 보류
 
 ### 권장 커밋
 

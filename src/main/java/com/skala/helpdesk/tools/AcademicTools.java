@@ -47,6 +47,7 @@ public class AcademicTools {
             return "해당 학번의 학적 정보를 찾을 수 없습니다.";
         }
 
+        // 두 인자는 의도적으로 같다. 조회 대상과 인증 소유자를 함께 강제하는 Repository 계약이다.
         return records.findByIdAndOwnerId(studentId, studentId)
                 .map(r -> {
                     String courses = String.join(", ", r.courses().stream()
@@ -71,6 +72,7 @@ public class AcademicTools {
             return "해당 학번의 학적 정보를 찾을 수 없습니다.";
         }
 
+        // findById로 단순화하면 소유자 검증 경계가 사라지므로 반드시 이 계약을 유지한다.
         return records.findByIdAndOwnerId(studentId, studentId)
                 .map(r -> "졸업요건 현황: 누적 학점 %d학점, GPA %.1f, 어학요건 %s, 캡스톤 %s."
                         .formatted(r.totalCredits(), r.gpa(),
