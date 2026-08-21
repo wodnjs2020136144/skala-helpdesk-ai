@@ -126,7 +126,7 @@ A 소유 설정을 임의로 고치지 않는다.
 
 - [x] `requestDrop` 설명에 수강철회 접수용 Tool임을 명시한다.
 - [x] 즉시 철회되지 않고 지도교수 승인 후 처리됨을 Tool 설명에 포함한다.
-- [x] 과목코드와 철회 사유의 `@ToolParam` 설명을 완성한다.
+- [x] 과목코드·과목명과 철회 사유의 `@ToolParam` 설명을 완성한다.
 - [x] 학번은 `ToolContext`에서만 가져온다.
 - [x] 인증된 학생의 학적이 존재하는지 `findByIdAndOwnerId`로 확인한다.
 - [x] 요청한 과목이 해당 학생의 수강 과목인지 확인한다.
@@ -140,6 +140,7 @@ A 소유 설정을 임의로 고치지 않는다.
 - [x] 2021002 인증 문맥에서 2021001의 정보가 반환되지 않는다.
 - [x] 없는 인증 학번과 인증 정보 누락은 같은 비노출 응답을 받는다.
 - [x] 정상 수강철회 접수는 `PENDING` 상태와 신청번호를 반환한다.
+- [x] 사용자가 과목명으로 요청해도 실제 과목코드로 접수한다.
 - [x] 다른 학생의 과목 또는 수강하지 않은 과목은 접수되지 않는다.
 - [x] 승인 메서드는 모델의 Tool 목록에 존재하지 않는다.
 
@@ -151,13 +152,16 @@ A 소유 설정을 임의로 고치지 않는다.
 
 ### 2026-08-21 실행 결과
 
-- `AcademicToolsTest` 6개, `RequestToolsTest` 7개, `ToolSchemaContractTest` 1개 통과
+- `AcademicToolsTest` 6개, `RequestToolsTest` 8개, `ToolSchemaContractTest` 1개 통과
 - Spring AI 최종 Tool 스키마: `myCourses`, `gradStatus`, `requestDrop`만 노출
 - 스키마에 `studentId`·`approve`가 없음을 확인
 - `./gradlew build` 성공, 애플리케이션과 pgvector 기동 성공
-- 실제 모델 통합 시나리오는 현재 OpenAI API 키가 401로 거부돼 대기 중
-- API 키 오류 중에도 Health는 `UP`이며 API는 스택트레이스 없이 안전한
-  문구와 traceId를 반환함
+- 실제 모델 통합 시나리오 ②·④·⑤ 통과(2026-08-21)
+  - ② 누적 100학점, `toolUsed=true`
+  - ④ 알고리즘을 `CS201`로 해석해 `WD-0001/PENDING` 접수, 승인 미실행
+  - ⑤ 2021002의 타인 정보 요청 거부, `toolUsed=false`
+- Spring AI 2.0의 Tool Calling을 Memory(200)와 RAG(300) 사이인 order 250으로 배치해
+  JDBC 메모리가 저장하지 않는 도구 중간 메시지는 Tool Calling 내부 이력으로 처리함
 
 ### 권장 커밋 분리
 
