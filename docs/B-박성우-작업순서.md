@@ -58,21 +58,32 @@ A 소유 설정을 임의로 고치지 않는다.
 
 ### 작업
 
-- [ ] `docker compose up -d`로 pgvector를 실행한다.
-- [ ] 컨테이너가 healthy인지 확인한다.
-- [ ] 개인 OpenAI 키를 환경변수로만 주입한다.
-- [ ] `./gradlew build`를 실행한다.
-- [ ] `./gradlew bootRun`으로 실제 기동을 확인한다.
-- [ ] `/actuator/health`가 `UP`인지 확인한다.
-- [ ] Swagger UI가 열리는지 확인한다.
-- [ ] `http/samples.http`의 경로가 실제 Controller 경로와 일치하는지 확인한다.
-- [ ] 실행 과정에서 발견한 의존성 좌표 문제만 `build.gradle` 주석으로 기록한다.
+- [x] `docker compose up -d`로 pgvector를 실행한다.
+- [x] 컨테이너가 healthy인지 확인한다.
+- [x] 개인 OpenAI 키를 환경변수로만 주입한다.
+- [x] `./gradlew build`를 실행한다.
+- [x] `./gradlew bootRun`으로 실제 기동을 확인한다.
+- [x] `/actuator/health`가 `UP`인지 확인한다.
+- [x] Swagger UI가 열리는지 확인한다.
+- [x] `http/samples.http`의 경로가 실제 Controller 경로와 일치하는지 확인한다.
+- [x] 의존성 좌표 문제가 없음을 `./gradlew build`로 확인한다.
 
 ### 완료 기준
 
-- [ ] 실제 애플리케이션이 기동된다.
-- [ ] API 키가 Git 상태에 나타나지 않는다.
-- [ ] RAG와 Tool의 TODO 응답은 아직 정상 출발선으로 인정한다.
+- [x] 실제 애플리케이션이 기동된다.
+- [x] API 키가 Git 상태에 나타나지 않는다.
+- [x] RAG와 Tool의 TODO 응답은 아직 정상 출발선으로 인정한다.
+
+### 2026-08-21 실행 결과
+
+- `./gradlew build`: 성공
+- pgvector: `helpdesk` 계정·DB 연결 성공
+- Health: HTTP 200, `UP`
+- Swagger UI: `/swagger-ui/index.html` HTTP 200
+- OpenAPI: `http/samples.http`의 7개 경로·메서드와 일치
+- 환경 이슈: macOS의 로컬 PostgreSQL이 5432를 사용 중이어서 Docker 포트를
+  15432로 재정의했다. 재현 명령은 README에 기록했다.
+- A 확인 사항: 팀 환경에서 5432 충돌 여부를 확인하고 포트를 통일한다.
 
 ### A에게 전달할 내용
 

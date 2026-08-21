@@ -47,6 +47,14 @@ export OPENAI_API_KEY="sk-..."
 ./gradlew bootRun             # VS Code는 F5
 ```
 
+로컬 PostgreSQL이 5432 포트를 이미 사용 중이면 저장소 설정을 바꾸지 않고
+다음처럼 Docker 공개 포트와 실행 시 datasource URL만 재정의한다.
+
+```bash
+HELPDESK_POSTGRES_PORT=15432 docker compose up -d
+SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:15432/helpdesk ./gradlew bootRun
+```
+
 Swagger UI — <http://localhost:8080/swagger-ui.html>
 Health — <http://localhost:8080/actuator/health>
 
@@ -85,8 +93,9 @@ Boot 4.1.0 / `spring-ai-bom:2.0.0` / JDK 21 — `day1-order-summary`·`day3-cons
 `spring-ai-starter-vector-store-pgvector`·`spring-boot-starter-security`·
 `spring-ai-starter-model-chat-memory-repository-jdbc` 3개는 이 리포에서 처음 추가한
 좌표다 — `./gradlew build`로 2.0.0 BOM에서 실제로 해석되고 컴파일이 통과함을
-확인했다(2026-08-20). pgvector 실행·실제 API 키가 필요한 부팅 검증(`bootRun`)은
-아직 확인 전이다 — 실행 시 문제가 있으면 `build.gradle` 주석에 교정 내용을 남긴다.
+확인했다(2026-08-20). pgvector·실제 API 키를 사용한 `bootRun`, Health,
+Swagger UI도 확인했다(2026-08-21). 로컬 PostgreSQL과의 5432 포트 충돌은
+위의 `HELPDESK_POSTGRES_PORT`와 `SPRING_DATASOURCE_URL` 재정의로 해결한다.
 
 ## 참조 코드
 
