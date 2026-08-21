@@ -76,6 +76,12 @@ dependencies {
     // `./gradlew build`로 2.0.0 BOM에서 실제로 해석됨을 확인했다(2026-08-20).
     // ===============================
     implementation 'org.springframework.ai:spring-ai-starter-model-chat-memory-repository-jdbc'
+
+    // ===============================
+    // PDF 학사규정 인제스트(Phase 2 확장) — BOM 관리 좌표(버전 없음).
+    // ch08_ragadv/build.gradle:39에서 실컴파일로 확인된 값과 동일하다.
+    // ===============================
+    implementation 'org.springframework.ai:spring-ai-tika-document-reader'
 }
 
 tasks.named('test') { useJUnitPlatform() }

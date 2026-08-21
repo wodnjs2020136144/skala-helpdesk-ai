@@ -3,3 +3,8 @@ bin/
 .gradle/
 .env
 .DS_Store
+
+# 개인 에이전트 설정 — 사람마다 다르므로 공유하지 않는다
+.claude/
+.codex/
+AGENTS.override.md
