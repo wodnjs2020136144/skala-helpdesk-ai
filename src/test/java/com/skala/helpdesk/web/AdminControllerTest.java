@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -39,7 +40,7 @@ class AdminControllerTest {
     @BeforeEach
     void setUp() {
         var props = new HelpDeskProperties(
-                new HelpDeskProperties.Rag(5, 0.3, 300, 150),
+                new HelpDeskProperties.Rag(5, 50, 0.3, 300, 150),
                 new HelpDeskProperties.Memory(20),
                 new HelpDeskProperties.Tool(5));
         var controller = new AdminController(
@@ -63,6 +64,7 @@ class AdminControllerTest {
 
         mockMvc.perform(get("/api/admin/chunks").param("q", "  졸업 학점  ").param("topK", "3"))
                 .andExpect(status().isOk())
+                .andExpect(header().string("X-Applied-Similarity-Threshold", "0.3"))
                 .andExpect(jsonPath("$", hasSize(1)))
                 .andExpect(jsonPath("$[0].source").value("graduation-requirements.md"))
                 .andExpect(jsonPath("$[0].docType").value("academic"))
@@ -128,9 +130,9 @@ class AdminControllerTest {
     void topK가_범위를_벗어나면_400을_반환한다() throws Exception {
         mockMvc.perform(get("/api/admin/chunks").param("q", "졸업").param("topK", "0"))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/api/admin/chunks").param("q", "졸업").param("topK", "6"))
+        mockMvc.perform(get("/api/admin/chunks").param("q", "졸업").param("topK", "51"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("topK는 1 이상 5 이하여야 합니다."));
+                .andExpect(jsonPath("$.message").value("topK는 1 이상 50 이하여야 합니다."));
 
         verifyNoInteractions(vectorStore);
     }
@@ -140,6 +142,37 @@ class AdminControllerTest {
         mockMvc.perform(get("/api/admin/chunks").param("q", "졸업").param("topK", "많이"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("topK는 숫자여야 합니다."));
+
+        verifyNoInteractions(vectorStore);
+    }
+
+    @Test
+    void 진단용_topK와_threshold를_별도로_지정한다() throws Exception {
+        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/admin/chunks")
+                        .param("q", "검색 실패 원인")
+                        .param("topK", "20")
+                        .param("threshold", "0"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Applied-Similarity-Threshold", "0.0"));
+
+        ArgumentCaptor<SearchRequest> captor = ArgumentCaptor.forClass(SearchRequest.class);
+        verify(vectorStore).similaritySearch(captor.capture());
+        org.assertj.core.api.Assertions.assertThat(captor.getValue().getTopK()).isEqualTo(20);
+        org.assertj.core.api.Assertions.assertThat(captor.getValue().getSimilarityThreshold()).isZero();
+    }
+
+    @Test
+    void threshold가_잘못되면_400을_반환한다() throws Exception {
+        mockMvc.perform(get("/api/admin/chunks").param("q", "졸업").param("threshold", "낮게"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("threshold는 숫자여야 합니다."));
+        mockMvc.perform(get("/api/admin/chunks").param("q", "졸업").param("threshold", "-0.1"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/admin/chunks").param("q", "졸업").param("threshold", "NaN"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("threshold는 0 이상 1 이하여야 합니다."));
 
         verifyNoInteractions(vectorStore);
     }

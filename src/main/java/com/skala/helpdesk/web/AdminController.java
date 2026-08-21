@@ -37,6 +37,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 @Tag(name = "HelpDesk · 관리자(학사팀)")
 public class AdminController {
 
+    private static final String APPLIED_THRESHOLD_HEADER = "X-Applied-Similarity-Threshold";
+
     private final VectorStore vectorStore;
     private final WithdrawalRequestRepository requests;
     private final HelpDeskProperties props;
@@ -55,9 +57,11 @@ public class AdminController {
      * 누락을 잡지 못하면 Phase 3의 출처 표기가 조용히 깨진다.
      */
     @GetMapping("/api/admin/chunks")
-    @Operation(summary = "인제스트된 청크 검사", description = "무엇이 들어갔는지 눈으로 확인한다(p.315).")
+    @Operation(summary = "인제스트된 청크 검사",
+            description = "무엇이 들어갔는지 눈으로 확인한다. threshold=0이면 임계값 없이 검색한다(p.315).")
     public ResponseEntity<?> inspectChunks(@RequestParam(required = false) String q,
-                                           @RequestParam(required = false) String topK) {
+                                           @RequestParam(required = false) String topK,
+                                           @RequestParam(required = false) String threshold) {
         if (q == null || q.isBlank()) {
             return badRequest("검색어(q)를 입력해 주세요.");
         }
@@ -68,23 +72,37 @@ public class AdminController {
         catch (NumberFormatException e) {
             return badRequest("topK는 숫자여야 합니다.");
         }
-        if (requestedTopK < 1 || requestedTopK > props.rag().topK()) {
-            return badRequest("topK는 1 이상 %d 이하여야 합니다.".formatted(props.rag().topK()));
+        if (requestedTopK < 1 || requestedTopK > props.rag().inspectionMaxTopK()) {
+            return badRequest("topK는 1 이상 %d 이하여야 합니다."
+                    .formatted(props.rag().inspectionMaxTopK()));
+        }
+        double requestedThreshold;
+        try {
+            requestedThreshold = threshold == null
+                    ? props.rag().threshold()
+                    : Double.parseDouble(threshold);
+        }
+        catch (NumberFormatException e) {
+            return badRequest("threshold는 숫자여야 합니다.");
+        }
+        if (!Double.isFinite(requestedThreshold)
+                || requestedThreshold < 0.0 || requestedThreshold > 1.0) {
+            return badRequest("threshold는 0 이상 1 이하여야 합니다.");
         }
 
         var hits = vectorStore.similaritySearch(SearchRequest.builder()
                 .query(q.trim())
                 .topK(requestedTopK)
-                .similarityThreshold(props.rag().threshold())
+                .similarityThreshold(requestedThreshold)
                 .build());
         if (hits == null) {
-            return ResponseEntity.ok(List.of());
+            return ok(List.of(), requestedThreshold);
         }
         var result = hits.stream()
                 .filter(Objects::nonNull)
                 .map(this::chunkView)
                 .toList();
-        return ResponseEntity.ok(result);
+        return ok(result, requestedThreshold);
     }
 
     private Map<String, Object> chunkView(Document document) {
@@ -105,6 +123,13 @@ public class AdminController {
 
     private ResponseEntity<Map<String, String>> badRequest(String message) {
         return ResponseEntity.badRequest().body(Map.of("message", message));
+    }
+
+    private ResponseEntity<List<Map<String, Object>>> ok(List<Map<String, Object>> result,
+                                                          double appliedThreshold) {
+        return ResponseEntity.ok()
+                .header(APPLIED_THRESHOLD_HEADER, Double.toString(appliedThreshold))
+                .body(result);
     }
 
     @GetMapping("/api/admin/withdrawal-requests/pending")
