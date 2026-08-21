@@ -45,7 +45,9 @@ spring:
 helpdesk:
   rag:
     top-k: 5
-    threshold: 0.5   # A가 Phase 2 인제스트 이후 실측으로 조정한다 — day3-consult-agent 트러블슈팅 참고
+    threshold: 0.3   # 실측 조정(2026-08-21): 자연어 질문 기준 무관 질의 최고 0.287, 자퇴 0.369,
+                      # 제적 0.434, 휴학·졸업요건 0.5+. 0.5는 무관 질문은 잘 걸렀지만 자퇴·제적처럼
+                      # 근거가 실제로 있는 질문까지 걸러냈다(재현율 손실) — docs/검증-시나리오.md ① 참고
     chunk-size: 300           # 학사규정 조항 단위가 짧아 day3-consult-agent(400)보다 작게 시작
     min-chunk-size-chars: 150 # 검증 후 조정 — /api/admin/chunks로 preview가 조항을 온전히 담는지 확인
   memory:
