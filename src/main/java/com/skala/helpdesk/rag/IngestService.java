@@ -35,7 +35,7 @@ import com.skala.helpdesk.config.HelpDeskProperties;
  * <p><b>코퍼스 확장(Phase 2 심화)</b> — {@code helpdesk-docs/*.md} 앵커 3종(Tool 반환값과
  * 정합성이 맞춰져 있어 교체하지 않는다)에 더해, {@code helpdesk-docs/regulations/*.pdf}로
  * 실제 학사규정 3종(학칙·학사운영에관한규칙·장학금에관한규칙, 출처는
- * {@code corpus/README.md})을 얹는다. 청크가 3~6개뿐이던 앵커 코퍼스로는 top-k·threshold
+ * {@code helpdesk-docs/regulations/README.md})을 얹는다. 청크가 3~6개뿐이던 앵커 코퍼스로는 top-k·threshold
  * 튜닝도, {@code docType}·{@code dept} 필터링도, 유사 조항(휴학/자퇴/제적) 검색 실패도
  * 관찰할 수 없었다 — 규정 3종을 더해야 이 학습 지점이 살아난다. PDF는
  * {@link TikaDocumentReader}로, md는 기존대로 {@link TextReader}로 읽는다(Tika는 HWP를
@@ -107,7 +107,7 @@ public class IngestService {
 
             // Phase 2 심화 — rule.koreatech.ac.kr(한국기술교육대학교 내규관리시스템)에서
             // PDF로 받은 학사규정 3종. docType(분야 트리)·dept(담당부서)·version(개정일)은
-            // 각 규정 상세 화면의 실측값이다(corpus/README.md에 취득 경위 기록).
+            // 각 규정 상세 화면의 실측값이다(helpdesk-docs/regulations/README.md에 취득 경위 기록).
             ingestFile("classpath:helpdesk-docs/regulations/한국기술교육대학교_학칙.pdf",
                     "학칙", "교무팀", "2026-03-31");
             ingestFile("classpath:helpdesk-docs/regulations/학사운영에관한규칙.pdf",

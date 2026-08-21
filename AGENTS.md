@@ -64,7 +64,8 @@ Audit(0) → TokenMeter(10) → SafeGuard(100) → Memory(200) → RAG(300)
 `classpath:helpdesk-docs/*.md` 앵커 3종 + `helpdesk-docs/regulations/*.pdf` 학사규정 3종
 (학칙·학사운영에관한규칙·장학금에관한규칙, 출처는 `helpdesk-docs/regulations/README.md`)을
 인제스트하고, 메타데이터 `source`·`docType`·`dept`·`version`을 붙인다. `docType`은
-md 3종(`academic`)에 PDF 3종(`학칙`/`교무행정`/`학생행정`)이 더해져 총 6종이다.
+md 3종이 전부 `academic` 하나로 묶여 있고, 여기에 PDF 3종(`학칙`/`교무행정`/`학생행정`)이
+더해져 총 4종이다.
 `HelpDeskService#sourcesFrom`이 응답 컨텍스트의
 `QuestionAnswerAdvisor.RETRIEVED_DOCUMENTS`에서 이 메타데이터를 꺼내 `AnswerDto.Source`를
 만든다 — **`enrich`의 메타데이터 키를 바꾸면 출처 표기가 조용히 깨진다.**
