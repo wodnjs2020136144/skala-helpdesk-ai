@@ -35,7 +35,7 @@ POST {{host}}/api/chat?studentId=2021001
 Content-Type: application/json
 
 {
-  "question": "자료구조 수강철회해주세요",
+  "question": "알고리즘 수강철회해주세요",
   "sessionId": "s1"
 }
 
