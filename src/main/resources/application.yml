@@ -66,6 +66,8 @@ helpdesk:
       model: gpt-4o   # 주 모델(gpt-4o-mini) 장애 시 대체 경로(Phase 8, 검증 시나리오 ⑦)
     budget:
       max-total-tokens: 200000   # 초과해도 요청은 막지 않는다 — 경고 로그·ai.budget.exceeded 지표만 남긴다
+  chat:
+    stream-timeout: 60s   # Phase 6 SSE 타임아웃(PR #4·#6 합의) — ChatController(B)가 바인딩·적용한다.
 
 server:
   port: 8080

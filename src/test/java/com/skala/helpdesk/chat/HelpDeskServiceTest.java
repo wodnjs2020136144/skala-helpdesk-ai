@@ -58,6 +58,33 @@ class HelpDeskServiceTest {
                 .isNotEqualTo(service.conversationId("2021001", "s2"));
     }
 
+    // --- studentIdFrom: PR #6 리뷰에서 지적받은 AuditAdvisor의 파싱 의존을 해소하는 헬퍼 ---
+
+    @Test
+    void studentIdFrom_conversationId에서_학번을_되돌려_뽑는다() {
+        HelpDeskService service = new HelpDeskService(null, null, null, null);
+
+        String conversationId = service.conversationId("2021001", "s1");
+
+        assertThat(HelpDeskService.studentIdFrom(conversationId)).isEqualTo("2021001");
+    }
+
+    @Test
+    void studentIdFrom_세션ID에_콜론이_섞여도_학번만_정확히_뽑는다() {
+        HelpDeskService service = new HelpDeskService(null, null, null, null);
+
+        String conversationId = service.conversationId("2021001", "room:42");
+
+        assertThat(HelpDeskService.studentIdFrom(conversationId)).isEqualTo("2021001");
+    }
+
+    @Test
+    void studentIdFrom_형식이_어긋나면_예외_대신_unknown을_반환한다() {
+        assertThat(HelpDeskService.studentIdFrom("망가진값")).isEqualTo("unknown");
+        assertThat(HelpDeskService.studentIdFrom(null)).isEqualTo("unknown");
+        assertThat(HelpDeskService.studentIdFrom("다른테넌트:2021001:s1")).isEqualTo("unknown");
+    }
+
     // --- sourcesFrom: RAG 근거 추출·중복 제거·근거 없음 처리 ---
 
     @Test

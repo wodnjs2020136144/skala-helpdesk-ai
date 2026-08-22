@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,11 +13,15 @@ import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Service;
 
 import com.skala.helpdesk.chat.AnswerDto.Source;
+import com.skala.helpdesk.chat.StreamEvent.Done;
+import com.skala.helpdesk.chat.StreamEvent.Sources;
+import com.skala.helpdesk.chat.StreamEvent.Token;
 import com.skala.helpdesk.config.AiOpsProperties;
 import com.skala.helpdesk.tools.BoundedToolCallingManager;
 import com.skala.helpdesk.tools.ToolCallLimitExceededException;
@@ -57,13 +62,30 @@ public class HelpDeskService {
         this.registry = registry;
     }
 
+    /** 단일 테넌트 식별자. 현재는 상수지만 멀티 테넌트로 확장하면 파라미터로 바뀐다. */
+    public static final String TENANT = "skala";
+
     /**
      * 대화 ID 규칙 — 테넌트·학번·세션을 합쳐 하나로 만든다. 이 메서드 밖에서 조합하지 않는다
      * (Phase 5, p.319). 지금은 단일 테넌트("skala")만 다루므로 상수로 둔다 — 멀티 테넌트로
      * 확장하면 파라미터로 받는다.
      */
     public String conversationId(String studentId, String sessionId) {
-        return "skala:%s:%s".formatted(studentId, sessionId);
+        return "%s:%s:%s".formatted(TENANT, studentId, sessionId);
+    }
+
+    /**
+     * {@link #conversationId(String, String)}의 역함수 — 학번만 꺼낸다. PR #6 리뷰에서
+     * {@code AuditAdvisor.maskedUser()}가 이 포맷을 {@code split(":", 3)}으로 직접 파싱하던
+     * 암묵적 의존을 지적받아 공개 헬퍼로 정리했다. 형식이 어긋나도 예외를 던지지 않는다 —
+     * 감사 로그 한 줄 때문에 요청 전체가 실패하면 안 된다.
+     */
+    public static String studentIdFrom(String conversationId) {
+        if (conversationId == null) {
+            return "unknown";
+        }
+        String[] parts = conversationId.split(":", 3);
+        return parts.length == 3 && TENANT.equals(parts[0]) ? parts[1] : "unknown";
     }
 
     /**
@@ -149,20 +171,83 @@ public class HelpDeskService {
     }
 
     /**
-     * TODO(A, Phase 6): SSE용 토큰 스트림. {@code chat.prompt()...stream().content()}를
-     * 반환한다. 마지막 출처 이벤트는 {@code ChatController}가 별도로 붙인다(p.320 코드 참고
-     * — 스트림 완료 후 {@code lastSources}를 호출해 마지막 이벤트로 내보낸다).
-     *
-     * <p>Phase 8 폴백은 이 메서드에는 아직 없다 — {@link #ask}처럼 실패를 감지해 재시도하려면
-     * 이미 내보낸 토큰과 겹치지 않게 스트림을 다시 시작하는 방법을 {@code ChatController}의
-     * sources 이벤트 계약(B)과 함께 정해야 한다. Phase 6 작업 때 같이 처리한다.
+     * @deprecated Phase 6 계약 확정(PR #4·#6 코멘트)으로 {@link #streamEvents}가 대체한다.
+     * 출처 없이 토큰만 흘려서 {@code ChatController}가 SSE 계약({@code token → sources →
+     * done})을 채울 수 없다 — B가 Controller를 옮긴 뒤 제거한다.
      */
+    @Deprecated
     public Flux<String> stream(String question, String studentId, String sessionId) {
         AtomicBoolean toolUsed = new AtomicBoolean(false);
         return chat.prompt().user(question)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId(studentId, sessionId)))
                 .toolContext(Map.of("studentId", studentId, "toolUsed", toolUsed))
                 .stream().content();
+    }
+
+    /**
+     * Phase 6 — SSE 스트림. 계약(PR #4·#6에서 A·B 합의): 정상 경로는
+     * {@code token* → sources → done} 순서로 나간다. {@code ChatController}(B)가 이벤트
+     * 이름 매핑만 하면 되도록 여기서 도메인 이벤트를 완성해 넘긴다.
+     *
+     * <p><b>출처가 스트림 끝에서야 나오는 게 아니다</b> — {@code QuestionAnswerAdvisor}는
+     * {@code BaseAdvisor}라 {@code before()}에서 스트림 시작 전에 검색 문서를 컨텍스트에
+     * 채운다. {@code ChatModelStreamAdvisor}가 그 컨텍스트를 모든 청크에 그대로 복사하므로
+     * (실측 확인, Spring AI 2.0 소스) 첫 청크부터 {@link #sourcesFrom}으로 출처를 뽑을 수
+     * 있다 — 별도 {@code lastSources} 상태 없이, 매 청크에서 갱신하다가 완료 시 한 번만
+     * 흘리면 된다.
+     *
+     * <p>{@code Flux.defer}로 구독(요청)마다 새 상태(출처 홀더·{@code toolUsed}·도구 호출
+     * 카운터)를 만든다 — 싱글턴 필드에 두면 동시 SSE 요청의 출처가 섞인다
+     * ({@code TokenMeterAdvisor.adviseStream}과 같은 함정, PR #4에서 B도 독립적으로 같은
+     * 결론을 냈다).
+     *
+     * <p><b>{@code helpdesk.tool.max-calls} 상한이 이 경로에도 걸린다</b> — {@link #askWith}
+     * 처럼 {@code toolContext}에 {@link BoundedToolCallingManager#TOOL_CALL_COUNTER}를
+     * 담는다(PR #9·#10 rebase 때 추가 — 원래 이 카운터가 없어서 스트리밍 경로만 무제한
+     * 호출이 가능했다).
+     *
+     * <p><b>폴백을 넣지 않는다</b> — {@link #ask}처럼 실패를 감지해 재시도하려면 이미 내보낸
+     * 토큰과 겹치지 않게 스트림을 다시 시작해야 하는데, 클라이언트가 이미 받은 토큰을 무를
+     * 방법이 없다. 오류는 그대로 {@code onError}로 전파한다 — {@code error} 이벤트에 실을
+     * traceId는 MDC 기반이라 리액티브 스레드에서 못 만든다({@link StreamEvent} Javadoc
+     * 참고), Controller가 HTTP 스레드에서 캡처해 붙인다.
+     */
+    public Flux<StreamEvent> streamEvents(String question, String studentId, String sessionId) {
+        return Flux.defer(() -> {
+            AtomicBoolean toolUsed = new AtomicBoolean(false);
+            AtomicReference<List<Source>> sources = new AtomicReference<>(List.of());
+            AtomicInteger toolCallCounter = new AtomicInteger(0);
+
+            return chat.prompt().user(question)
+                    .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId(studentId, sessionId)))
+                    .toolContext(Map.of(
+                            "studentId", studentId,
+                            "toolUsed", toolUsed,
+                            BoundedToolCallingManager.TOOL_CALL_COUNTER, toolCallCounter))
+                    .stream().chatClientResponse()
+                    .doOnNext(response -> sources.set(sourcesFrom(response)))
+                    .<StreamEvent>handle((response, sink) -> {
+                        String text = textOf(response);
+                        if (text != null && !text.isEmpty()) {
+                            sink.next(new Token(text));
+                        }
+                    })
+                    .concatWith(Flux.defer(() -> Flux.just(
+                            new Sources(sources.get()),
+                            new Done(toolUsed.get()))));
+        });
+    }
+
+    /** 스트리밍 청크는 도구 호출 중간 청크·usage 전용 마지막 청크처럼 텍스트가 없을 수 있다. */
+    private static String textOf(ChatClientResponse response) {
+        if (response.chatResponse() == null) {
+            return null;
+        }
+        Generation result = response.chatResponse().getResult();
+        if (result == null || result.getOutput() == null) {
+            return null;
+        }
+        return result.getOutput().getText();
     }
 
     public List<String> history(String studentId, String sessionId) {
