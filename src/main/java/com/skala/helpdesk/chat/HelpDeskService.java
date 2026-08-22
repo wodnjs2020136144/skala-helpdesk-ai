@@ -4,19 +4,26 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Service;
 
 import com.skala.helpdesk.chat.AnswerDto.Source;
+import com.skala.helpdesk.config.AiOpsProperties;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
 import reactor.core.publisher.Flux;
 
 /**
- * 담당: A(첫 번째 책임자) · 리뷰: B — Phase 3(p.316)·Phase 5(p.319)·Phase 6(p.320).
+ * 담당: A(첫 번째 책임자) · 리뷰: B — Phase 3(p.316)·Phase 5(p.319)·Phase 6(p.320)·Phase 8.
  *
  * <p>{@code conversationId}를 <b>이 한 곳에서만</b> 만든다. 규칙이 흩어지면 남의 대화가
  * 섞이는 사고가 난다 — 메모리에서 가장 흔한 버그이고 가장 늦게 발견된다(교안 함정).
@@ -32,12 +39,19 @@ import reactor.core.publisher.Flux;
 @Service
 public class HelpDeskService {
 
+    private static final Logger log = LoggerFactory.getLogger(HelpDeskService.class);
+
     private final ChatClient chat;
     private final ChatMemory chatMemory;
+    private final AiOpsProperties aiOps;
+    private final MeterRegistry registry;
 
-    public HelpDeskService(ChatClient helpDeskClient, ChatMemory chatMemory) {
+    public HelpDeskService(ChatClient helpDeskClient, ChatMemory chatMemory,
+                           AiOpsProperties aiOps, MeterRegistry registry) {
         this.chat = helpDeskClient;
         this.chatMemory = chatMemory;
+        this.aiOps = aiOps;
+        this.registry = registry;
     }
 
     /**
@@ -50,19 +64,60 @@ public class HelpDeskService {
     }
 
     /**
-     * TODO(A, Phase 3): {@code chat.prompt()...call().chatClientResponse()}로 호출하고
-     * {@link #sourcesFrom}으로 출처를 뽑아 {@link AnswerDto}를 만든다. 근거 문서가 없으면
-     * (sources가 비어 있으면) 규정을 지어내지 않았는지 답변 문구도 함께 확인한다.
+     * 검증 완료(2026-08-22, 실제 OpenAI + pgvector) — 시나리오 ①②⑥ 실측 확인,
+     * {@code docs/검증-시나리오.md} 참고. 근거 문서가 없으면(sources가 비어 있으면) "정확한
+     * 규정을 확인할 수 없습니다" 류로 답하고 규정을 지어내지 않음을 확인했다.
+     *
+     * <p>Phase 8 — 주 모델 호출이 실패하면 {@code helpdesk.ai.fallback.model}로 한 번만
+     * 재시도한다(검증 시나리오 ⑦). {@code DefaultAroundAdvisorChain}은 advisor를
+     * {@code Deque}에서 꺼내 쓰는 소모성 체인이라 Advisor 내부에서 재시도할 수 없다 —
+     * 그래서 여기 서비스 계층에서 {@code chat.prompt()}를 다시 호출해 새 체인을 만든다.
+     * 재시도도 같은 {@code conversationId}·{@code toolContext}를 쓴다(재시도가 별개 대화로
+     * 갈라지면 안 된다).
+     *
+     * <p><b>메모리 중복 저장 방지</b> — {@code MessageChatMemoryAdvisor#before()}는 모델
+     * 호출 성공 여부와 무관하게 사용자 메시지를 <i>즉시</i> 저장한다(실측 확인, Spring AI
+     * 2.0 소스). 그래서 1차 호출이 실패해도 질문은 이미 메모리에 한 번 저장된 뒤다 — 재시도
+     * 전에 호출 직전 스냅샷으로 되돌려, 재시도가 자신만의 사용자·어시스턴트 메시지 한 쌍을
+     * 깨끗하게 저장하게 한다(그렇지 않으면 같은 질문이 두 번 쌓인다).
      */
     public AnswerDto ask(String question, String studentId, String sessionId) {
+        String conversationId = conversationId(studentId, sessionId);
+        List<Message> beforeAttempt = chatMemory.get(conversationId);
+
+        try {
+            return askWith(null, question, studentId, sessionId);
+        } catch (RuntimeException primaryFailure) {
+            if (!aiOps.fallback().enabled()) {
+                throw primaryFailure;
+            }
+            log.warn("주 모델 호출 실패 — 폴백 모델로 재시도합니다 model={} cause={}",
+                    aiOps.fallback().model(), primaryFailure.getMessage());
+            chatMemory.clear(conversationId);
+            chatMemory.add(conversationId, beforeAttempt);
+            try {
+                AnswerDto fallbackAnswer = askWith(aiOps.fallback().model(), question, studentId, sessionId);
+                registry.counter("ai.fallback", Tags.of("outcome", "success")).increment();
+                return fallbackAnswer;
+            } catch (RuntimeException fallbackFailure) {
+                registry.counter("ai.fallback", Tags.of("outcome", "failed")).increment();
+                throw fallbackFailure;
+            }
+        }
+    }
+
+    private AnswerDto askWith(String modelOverride, String question, String studentId, String sessionId) {
         AtomicBoolean toolUsed = new AtomicBoolean(false);
 
-        ChatClientResponse response = chat.prompt().user(question)
+        ChatClient.ChatClientRequestSpec request = chat.prompt().user(question)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId(studentId, sessionId)))
-                .toolContext(Map.of("studentId", studentId, "toolUsed", toolUsed))
-                .call().chatClientResponse();
+                .toolContext(Map.of("studentId", studentId, "toolUsed", toolUsed));
+        if (modelOverride != null) {
+            request = request.options(ChatOptions.builder().model(modelOverride));
+        }
 
-        // TODO(A, Phase 3): 아래 두 줄이 실제 답변·출처 추출이다 — 지금은 뼈대만 있다.
+        ChatClientResponse response = request.call().chatClientResponse();
+
         String answer = response.chatResponse().getResult().getOutput().getText();
         return new AnswerDto(answer, sourcesFrom(response), toolUsed.get());
     }
@@ -71,6 +126,10 @@ public class HelpDeskService {
      * TODO(A, Phase 6): SSE용 토큰 스트림. {@code chat.prompt()...stream().content()}를
      * 반환한다. 마지막 출처 이벤트는 {@code ChatController}가 별도로 붙인다(p.320 코드 참고
      * — 스트림 완료 후 {@code lastSources}를 호출해 마지막 이벤트로 내보낸다).
+     *
+     * <p>Phase 8 폴백은 이 메서드에는 아직 없다 — {@link #ask}처럼 실패를 감지해 재시도하려면
+     * 이미 내보낸 토큰과 겹치지 않게 스트림을 다시 시작하는 방법을 {@code ChatController}의
+     * sources 이벤트 계약(B)과 함께 정해야 한다. Phase 6 작업 때 같이 처리한다.
      */
     public Flux<String> stream(String question, String studentId, String sessionId) {
         AtomicBoolean toolUsed = new AtomicBoolean(false);

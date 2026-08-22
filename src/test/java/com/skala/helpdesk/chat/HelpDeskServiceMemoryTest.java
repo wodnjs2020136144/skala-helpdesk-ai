@@ -10,6 +10,10 @@ import org.springframework.ai.chat.memory.InMemoryChatMemoryRepository;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.messages.UserMessage;
 
+import com.skala.helpdesk.config.AiOpsProperties;
+
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
 class HelpDeskServiceMemoryTest {
 
     private MessageWindowChatMemory memory;
@@ -21,7 +25,13 @@ class HelpDeskServiceMemoryTest {
                 .chatMemoryRepository(new InMemoryChatMemoryRepository())
                 .maxMessages(20)
                 .build();
-        service = new HelpDeskService(mock(ChatClient.class), memory);
+        service = new HelpDeskService(
+                mock(ChatClient.class),
+                memory,
+                new AiOpsProperties(
+                        new AiOpsProperties.Fallback(false, "unused"),
+                        new AiOpsProperties.Budget(Long.MAX_VALUE)),
+                new SimpleMeterRegistry());
     }
 
     @Test
