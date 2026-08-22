@@ -50,9 +50,9 @@ public class HelpDeskService {
     }
 
     /**
-     * TODO(A, Phase 3): {@code chat.prompt()...call().chatClientResponse()}로 호출하고
-     * {@link #sourcesFrom}으로 출처를 뽑아 {@link AnswerDto}를 만든다. 근거 문서가 없으면
-     * (sources가 비어 있으면) 규정을 지어내지 않았는지 답변 문구도 함께 확인한다.
+     * 검증 완료(2026-08-22, 실제 OpenAI + pgvector) — 시나리오 ①②⑥ 실측 확인,
+     * {@code docs/검증-시나리오.md} 참고. 근거 문서가 없으면(sources가 비어 있으면) "정확한
+     * 규정을 확인할 수 없습니다" 류로 답하고 규정을 지어내지 않음을 확인했다.
      */
     public AnswerDto ask(String question, String studentId, String sessionId) {
         AtomicBoolean toolUsed = new AtomicBoolean(false);
@@ -62,7 +62,6 @@ public class HelpDeskService {
                 .toolContext(Map.of("studentId", studentId, "toolUsed", toolUsed))
                 .call().chatClientResponse();
 
-        // TODO(A, Phase 3): 아래 두 줄이 실제 답변·출처 추출이다 — 지금은 뼈대만 있다.
         String answer = response.chatResponse().getResult().getOutput().getText();
         return new AnswerDto(answer, sourcesFrom(response), toolUsed.get());
     }
