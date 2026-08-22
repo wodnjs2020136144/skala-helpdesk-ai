@@ -77,6 +77,16 @@ class AuditAdvisorTest {
         });
     }
 
+    @Test
+    void 다른_테넌트의_conversationId는_학번을_추측하지_않고_unknown으로_감사한다() {
+        ChatClientRequest request = request("질문 원문", "other:2021001:s1");
+
+        advisor.adviseCall(request, new SuccessChain());
+
+        assertThat(messages()).singleElement().satisfies(message ->
+                assertThat(message).contains("user=unknown").doesNotContain("2021001", "202****"));
+    }
+
     private ChatClientRequest request(String question, String conversationId) {
         return new ChatClientRequest(new Prompt(question),
                 Map.of(ChatMemory.CONVERSATION_ID, conversationId));

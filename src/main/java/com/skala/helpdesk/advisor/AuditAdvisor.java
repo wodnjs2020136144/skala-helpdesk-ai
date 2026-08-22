@@ -14,6 +14,7 @@ import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.stereotype.Component;
 
+import com.skala.helpdesk.chat.HelpDeskService;
 import com.skala.helpdesk.web.TraceIdFilter;
 
 import reactor.core.publisher.Flux;
@@ -98,11 +99,10 @@ public class AuditAdvisor implements CallAdvisor, StreamAdvisor {
         if (!(conversationId instanceof String value)) {
             return "unknown";
         }
-        String[] parts = value.split(":", 3);
-        if (parts.length != 3 || parts[1].isBlank()) {
+        String studentId = HelpDeskService.studentIdFrom(value);
+        if ("unknown".equals(studentId) || studentId.isBlank()) {
             return "unknown";
         }
-        String studentId = parts[1];
         int visible = Math.min(3, studentId.length());
         return studentId.substring(0, visible) + "*".repeat(studentId.length() - visible);
     }

@@ -1,8 +1,9 @@
 package com.skala.helpdesk.web;
 
 import java.security.Principal;
-import java.time.Duration;
+import java.util.UUID;
 
+import org.slf4j.MDC;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -14,6 +15,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.skala.helpdesk.chat.AnswerDto;
 import com.skala.helpdesk.chat.HelpDeskService;
+import com.skala.helpdesk.chat.StreamEvent;
+import com.skala.helpdesk.chat.StreamEvent.Done;
+import com.skala.helpdesk.chat.StreamEvent.Sources;
+import com.skala.helpdesk.chat.StreamEvent.Token;
+import com.skala.helpdesk.config.ChatProperties;
 
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
@@ -26,7 +32,6 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
 /**
  * 담당: B(첫 번째 책임자) · 리뷰: A — Phase 3(p.316) 동기 API·Phase 6(p.320) SSE.
@@ -44,10 +49,15 @@ import reactor.core.publisher.Mono;
 @Tag(name = "HelpDesk · 상담")
 public class ChatController {
 
-    private final HelpDeskService helpDesk;
+    private static final String SAFE_ERROR_MESSAGE =
+            "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.";
 
-    public ChatController(HelpDeskService helpDesk) {
+    private final HelpDeskService helpDesk;
+    private final ChatProperties chatProperties;
+
+    public ChatController(HelpDeskService helpDesk, ChatProperties chatProperties) {
         this.helpDesk = helpDesk;
+        this.chatProperties = chatProperties;
     }
 
     @PostMapping("/api/chat")
@@ -74,17 +84,36 @@ public class ChatController {
         return helpDesk.ask(request.question(), principal.getName(), request.sessionId());
     }
 
-    // TODO(B, Phase 6): 스트림 완료 후 마지막 sources 이벤트를 붙인다(교안 p.320 코드
-    // 참고 — 지금은 토큰 이벤트만 보낸다. HelpDeskService에 lastSources 같은 헬퍼를
-    // 추가하거나, 동기 ask()를 먼저 호출해 출처를 얻는 방식 중 A와 상의해 정한다).
     @PostMapping(value = "/api/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    @Operation(summary = "SSE 스트리밍 상담")
-    public Flux<ServerSentEvent<String>> stream(@Valid @RequestBody ChatRequest request,
+    @Operation(summary = "SSE 스트리밍 상담",
+            description = "token 이벤트 뒤 실제 sources와 done을 보내며, 실패 시 error와 done으로 종료합니다.")
+    public Flux<ServerSentEvent<Object>> stream(@Valid @RequestBody ChatRequest request,
                                                 Principal principal) {
-        return helpDesk.stream(request.question(), principal.getName(), request.sessionId())
-                .map(token -> ServerSentEvent.builder(token).event("token").build())
-                .concatWith(Mono.just(ServerSentEvent.builder("[]").event("sources").build()))
-                .timeout(Duration.ofSeconds(60));
+        // TraceIdFilter의 MDC는 리액티브 스레드까지 전파되지 않으므로 HTTP 요청 스레드에서 캡처한다.
+        String traceId = currentTraceId();
+        return helpDesk.streamEvents(request.question(), principal.getName(), request.sessionId())
+                .map(this::toServerSentEvent)
+                .timeout(chatProperties.streamTimeout())
+                .onErrorResume(error -> Flux.just(
+                        event("error", new StreamError(SAFE_ERROR_MESSAGE, traceId)),
+                        event("done", new StreamDone(false))));
+    }
+
+    private ServerSentEvent<Object> toServerSentEvent(StreamEvent streamEvent) {
+        return switch (streamEvent) {
+            case Token token -> event("token", token.text());
+            case Sources sources -> event("sources", sources.sources());
+            case Done done -> event("done", new StreamDone(done.toolUsed()));
+        };
+    }
+
+    private ServerSentEvent<Object> event(String name, Object data) {
+        return ServerSentEvent.builder(data).event(name).build();
+    }
+
+    private String currentTraceId() {
+        String traceId = MDC.get(TraceIdFilter.MDC_KEY);
+        return traceId == null || traceId.isBlank() ? UUID.randomUUID().toString() : traceId;
     }
 
     @GetMapping("/api/chat/history")
@@ -109,5 +138,11 @@ public class ChatController {
             @Size(max = 100, message = "세션 ID는 100자 이하여야 합니다.")
             @Schema(description = "대화 문맥을 구분하는 세션 ID", example = "s1")
             String sessionId) {
+    }
+
+    public record StreamDone(boolean toolUsed) {
+    }
+
+    public record StreamError(String message, String traceId) {
     }
 }

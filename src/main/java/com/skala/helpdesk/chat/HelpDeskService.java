@@ -48,6 +48,7 @@ import reactor.core.publisher.Flux;
 public class HelpDeskService {
 
     private static final Logger log = LoggerFactory.getLogger(HelpDeskService.class);
+    private static final String NO_EVIDENCE_MESSAGE = "정확한 규정을 확인할 수 없습니다";
 
     private final ChatClient chat;
     private final ChatMemory chatMemory;
@@ -167,7 +168,7 @@ public class HelpDeskService {
         ChatClientResponse response = request.call().chatClientResponse();
 
         String answer = response.chatResponse().getResult().getOutput().getText();
-        return new AnswerDto(answer, sourcesFrom(response), toolUsed.get());
+        return new AnswerDto(answer, sourcesFrom(answer, response), toolUsed.get());
     }
 
     /**
@@ -192,12 +193,12 @@ public class HelpDeskService {
      * <p><b>출처가 스트림 끝에서야 나오는 게 아니다</b> — {@code QuestionAnswerAdvisor}는
      * {@code BaseAdvisor}라 {@code before()}에서 스트림 시작 전에 검색 문서를 컨텍스트에
      * 채운다. {@code ChatModelStreamAdvisor}가 그 컨텍스트를 모든 청크에 그대로 복사하므로
-     * (실측 확인, Spring AI 2.0 소스) 첫 청크부터 {@link #sourcesFrom}으로 출처를 뽑을 수
-     * 있다 — 별도 {@code lastSources} 상태 없이, 매 청크에서 갱신하다가 완료 시 한 번만
-     * 흘리면 된다.
+     * (실측 확인, Spring AI 2.0 소스) 첫 청크부터 검색 문서 컨텍스트를 보관할 수 있다.
+     * 다만 근거 없음 후처리는 완성된 답변이 필요하므로 토큰을 요청 단위로 누적하고, 완료 시
+     * {@link #sourcesFrom(String, ChatClientResponse)}으로 한 번 판정해 출처를 흘린다.
      *
-     * <p>{@code Flux.defer}로 구독(요청)마다 새 상태(출처 홀더·{@code toolUsed}·도구 호출
-     * 카운터)를 만든다 — 싱글턴 필드에 두면 동시 SSE 요청의 출처가 섞인다
+     * <p>{@code Flux.defer}로 구독(요청)마다 새 상태(답변·응답 홀더·{@code toolUsed}·도구
+     * 호출 카운터)를 만든다 — 싱글턴 필드에 두면 동시 SSE 요청의 출처가 섞인다
      * ({@code TokenMeterAdvisor.adviseStream}과 같은 함정, PR #4에서 B도 독립적으로 같은
      * 결론을 냈다).
      *
@@ -215,7 +216,8 @@ public class HelpDeskService {
     public Flux<StreamEvent> streamEvents(String question, String studentId, String sessionId) {
         return Flux.defer(() -> {
             AtomicBoolean toolUsed = new AtomicBoolean(false);
-            AtomicReference<List<Source>> sources = new AtomicReference<>(List.of());
+            StringBuilder answer = new StringBuilder();
+            AtomicReference<ChatClientResponse> responseForSources = new AtomicReference<>();
             AtomicInteger toolCallCounter = new AtomicInteger(0);
 
             return chat.prompt().user(question)
@@ -225,16 +227,21 @@ public class HelpDeskService {
                             "toolUsed", toolUsed,
                             BoundedToolCallingManager.TOOL_CALL_COUNTER, toolCallCounter))
                     .stream().chatClientResponse()
-                    .doOnNext(response -> sources.set(sourcesFrom(response)))
+                    .doOnNext(responseForSources::set)
                     .<StreamEvent>handle((response, sink) -> {
                         String text = textOf(response);
                         if (text != null && !text.isEmpty()) {
+                            answer.append(text);
                             sink.next(new Token(text));
                         }
                     })
-                    .concatWith(Flux.defer(() -> Flux.just(
-                            new Sources(sources.get()),
-                            new Done(toolUsed.get()))));
+                    .concatWith(Flux.defer(() -> {
+                        ChatClientResponse response = responseForSources.get();
+                        List<Source> sources = response == null
+                                ? List.of()
+                                : sourcesFrom(answer.toString(), response);
+                        return Flux.just(new Sources(sources), new Done(toolUsed.get()));
+                    }));
         });
     }
 
@@ -273,5 +280,17 @@ public class HelpDeskService {
                         String.valueOf(d.getMetadata().get("version"))))
                 .distinct()
                 .toList();
+    }
+
+    /**
+     * 모델이 근거 없음 계약으로 답했다면 유사도 임계값을 넘은 무관 문서를
+     * 응답 출처로 노출하지 않는다. 시스템 프롬프트가 이 문구를 근거 없음의
+     * 표준 응답으로 정의한다.
+     */
+    protected List<Source> sourcesFrom(String answer, ChatClientResponse response) {
+        if (answer != null && answer.contains(NO_EVIDENCE_MESSAGE)) {
+            return List.of();
+        }
+        return sourcesFrom(response);
     }
 }
