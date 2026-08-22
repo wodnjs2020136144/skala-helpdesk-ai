@@ -21,6 +21,7 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import com.skala.helpdesk.advisor.AuditAdvisor;
 import com.skala.helpdesk.advisor.SafeGuardAdvisor;
 import com.skala.helpdesk.advisor.TokenMeterAdvisor;
+import com.skala.helpdesk.rag.IngestService;
 import com.skala.helpdesk.tools.AcademicTools;
 import com.skala.helpdesk.tools.BoundedToolCallingManager;
 import com.skala.helpdesk.tools.RequestTools;
@@ -66,6 +67,13 @@ public class AiConfig {
                                 .searchRequest(SearchRequest.builder()
                                         .topK(props.rag().topK())
                                         .similarityThreshold(props.rag().threshold())
+                                        // 운영 검색은 현행 본칙만 본다 — 부칙(개정 이력의
+                                        // 시행일·경과조치)이 섞이면 폐지된 옛 기준이 현행
+                                        // 규정처럼 답변에 들어간다(IngestService.splitBySection
+                                        // Javadoc의 26학점 실측 사례). 관리자 진단
+                                        // (AdminController)은 필터 없이 조회하므로 부칙도 보인다.
+                                        .filterExpression("%s == '%s'"
+                                                .formatted(IngestService.SECTION, IngestService.MAIN))
                                         .build())
                                 .order(300)
                                 .build())
