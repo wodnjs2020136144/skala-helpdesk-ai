@@ -244,18 +244,29 @@ A 소유 설정을 임의로 고치지 않는다.
 
 - [x] `AnswerDto(String answer, List<Source> sources, boolean toolUsed)`를 유지한다.
 - [ ] `Source(String document, String version)` 구조를 A와 함께 확인한다.
-- [ ] `ChatRequest.question`, `sessionId`에 입력 검증을 적용한다.
+- [x] `ChatRequest.question`, `sessionId`에 입력 검증을 적용한다.
 - [x] Controller에서 `ChatClient`를 직접 호출하지 않는다.
 - [ ] 규정 질문이 답변과 실제 출처를 반환하는지 확인한다.
-- [ ] 근거가 없을 때 안전한 답변과 빈 출처 목록을 반환하는지 확인한다.
+- [x] 근거가 없을 때 안전한 답변과 빈 출처 목록을 반환하는지 확인한다.
 - [x] Tool 질문에서 `toolUsed`가 실제 호출 결과와 일치하는지 확인한다.
-- [ ] Swagger에 정상·근거 없음 응답 예시를 추가한다.
+- [x] Swagger에 정상·근거 없음 응답 예시를 추가한다.
 
 ### 완료 기준
 
 - [ ] 검증 시나리오 ①을 통과한다.
 - [ ] 출처 없는 규정 답변을 정상으로 처리하지 않는다.
 - [ ] DTO 변경이 필요했다면 A의 합의와 리뷰가 기록돼 있다.
+
+### 2026-08-22 API 계약 검증 결과
+
+- `ChatControllerTest` 6개 통과
+  - 정상 응답의 `answer`·`sources`·`toolUsed` 계약 확인
+  - 근거 없음 응답의 안전 문구·빈 출처 확인
+  - 빈 질문·빈 세션 ID·100자 초과 세션 ID를 HTTP 400으로 차단
+  - 동기·SSE 요청에 같은 `ChatRequest` 검증 적용
+- Swagger에 규정 근거 답변·근거 없음 응답 예시 추가
+- 전체 `./gradlew clean build` 성공(총 39개 테스트 통과)
+- 실제 OpenAI RAG로 시나리오 ①을 B가 직접 재현하는 작업과 `Source` 계약의 A 확인은 남아 있다.
 
 ### 권장 커밋
 

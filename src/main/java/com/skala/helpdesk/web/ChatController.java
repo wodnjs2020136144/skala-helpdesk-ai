@@ -14,8 +14,16 @@ import org.springframework.web.bind.annotation.RestController;
 import com.skala.helpdesk.chat.AnswerDto;
 import com.skala.helpdesk.chat.HelpDeskService;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -42,7 +50,24 @@ public class ChatController {
 
     @PostMapping("/api/chat")
     @Operation(summary = "동기 상담", description = "RAG 규정 답변 + 학사 조회/철회 도구 + 대화 메모리")
-    public AnswerDto chat(@RequestBody ChatRequest request,
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "상담 성공",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = AnswerDto.class),
+                            examples = {
+                                    @ExampleObject(name = "규정 근거 답변", value = """
+                                            {"answer":"졸업하려면 총 130학점 이상이 필요합니다.",
+                                             "sources":[{"document":"graduation-requirements.md","version":"2026-08"}],
+                                             "toolUsed":false}
+                                            """),
+                                    @ExampleObject(name = "근거 없음", value = """
+                                            {"answer":"정확한 규정을 확인할 수 없습니다.",
+                                             "sources":[],"toolUsed":false}
+                                            """)
+                            })),
+            @ApiResponse(responseCode = "400", description = "질문 또는 세션 ID 입력 오류")
+    })
+    public AnswerDto chat(@Valid @RequestBody ChatRequest request,
                           @RequestParam(defaultValue = "2021001") String studentId) {
         return helpDesk.ask(request.question(), studentId, request.sessionId());
     }
@@ -52,7 +77,7 @@ public class ChatController {
     // 추가하거나, 동기 ask()를 먼저 호출해 출처를 얻는 방식 중 A와 상의해 정한다).
     @PostMapping(value = "/api/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "SSE 스트리밍 상담")
-    public Flux<ServerSentEvent<String>> stream(@RequestBody ChatRequest request,
+    public Flux<ServerSentEvent<String>> stream(@Valid @RequestBody ChatRequest request,
                                                 @RequestParam(defaultValue = "2021001") String studentId) {
         return helpDesk.stream(request.question(), studentId, request.sessionId())
                 .map(token -> ServerSentEvent.builder(token).event("token").build())
@@ -74,6 +99,13 @@ public class ChatController {
         helpDesk.clearHistory(studentId, sessionId);
     }
 
-    public record ChatRequest(String question, String sessionId) {
+    public record ChatRequest(
+            @NotBlank(message = "질문을 입력해 주세요.")
+            @Schema(description = "학사 상담 질문", example = "졸업 학점 요건이 어떻게 돼요?")
+            String question,
+            @NotBlank(message = "세션 ID를 입력해 주세요.")
+            @Size(max = 100, message = "세션 ID는 100자 이하여야 합니다.")
+            @Schema(description = "대화 문맥을 구분하는 세션 ID", example = "s1")
+            String sessionId) {
     }
 }

@@ -25,6 +25,7 @@ repositories { mavenCentral() }
 dependencies {
     // ── 웹 · 문서 · 관찰 ────────────────────────────────────────
     implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     // Boot 4부터 좌표가 spring-boot-starter-aop → spring-boot-starter-aspectj로 바뀌었다
     // (day3-consult-agent에서 실컴파일로 확인 — aop는 4.x에 존재하지 않는다).
