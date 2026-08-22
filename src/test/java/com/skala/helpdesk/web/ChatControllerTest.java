@@ -50,7 +50,8 @@ class ChatControllerTest {
                         true));
 
         mockMvc.perform(post("/api/chat")
-                        .param("studentId", "2021001")
+                        .principal(() -> "2021001")
+                        .param("studentId", "2021002")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"question":"제가 지금 몇 학점이죠?","sessionId":"s1"}
@@ -70,6 +71,7 @@ class ChatControllerTest {
                 .thenReturn(new AnswerDto("정확한 규정을 확인할 수 없습니다.", List.of(), false));
 
         mockMvc.perform(post("/api/chat")
+                        .principal(() -> "2021001")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"question":"학생식당 메뉴 알려줘","sessionId":"no-source"}
@@ -85,6 +87,7 @@ class ChatControllerTest {
     @Test
     void 질문이_비어_있으면_400을_반환하고_서비스를_호출하지_않는다() throws Exception {
         mockMvc.perform(post("/api/chat")
+                        .principal(() -> "2021001")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"question":"   ","sessionId":"s1"}
@@ -99,6 +102,7 @@ class ChatControllerTest {
     @Test
     void 세션_ID가_비어_있으면_400을_반환하고_서비스를_호출하지_않는다() throws Exception {
         mockMvc.perform(post("/api/chat")
+                        .principal(() -> "2021001")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"question":"졸업 요건 알려줘","sessionId":""}
@@ -114,6 +118,7 @@ class ChatControllerTest {
         String sessionId = "s".repeat(101);
 
         mockMvc.perform(post("/api/chat")
+                        .principal(() -> "2021001")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"question":"졸업 요건 알려줘","sessionId":"%s"}
@@ -128,6 +133,7 @@ class ChatControllerTest {
     @Test
     void 스트리밍_상담도_같은_요청_검증을_적용한다() throws Exception {
         mockMvc.perform(post("/api/chat/stream")
+                        .principal(() -> "2021001")
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .content("""

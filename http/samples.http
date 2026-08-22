@@ -2,9 +2,18 @@
 ### VS Code REST Client 확장 또는 IntelliJ HTTP Client로 실행할 수 있다.
 
 @host = http://localhost:8080
+@studentUser = 2021001
+@otherStudentUser = 2021002
+@studentPassword = student
+@adminUser = admin
+@adminPassword = admin
+
+### 기본 비밀번호는 로컬 실습 전용이다.
+### HELPDESK_STUDENT_PASSWORD·HELPDESK_ADMIN_PASSWORD를 설정했다면 아래 값도 맞춘다.
 
 ### ① 규정 — RAG + 출처
 POST {{host}}/api/chat
+Authorization: Basic {{studentUser}} {{studentPassword}}
 Content-Type: application/json
 
 {
@@ -13,7 +22,8 @@ Content-Type: application/json
 }
 
 ### ② 조회 — Tool (내 학점)
-POST {{host}}/api/chat?studentId=2021001
+POST {{host}}/api/chat
+Authorization: Basic {{studentUser}} {{studentPassword}}
 Content-Type: application/json
 
 {
@@ -22,7 +32,8 @@ Content-Type: application/json
 }
 
 ### ③ 멀티턴 — 메모리 + 규정 대조
-POST {{host}}/api/chat?studentId=2021001
+POST {{host}}/api/chat
+Authorization: Basic {{studentUser}} {{studentPassword}}
 Content-Type: application/json
 
 {
@@ -31,7 +42,8 @@ Content-Type: application/json
 }
 
 ### ④ 행동 — 승인 게이트 (수강철회 접수)
-POST {{host}}/api/chat?studentId=2021001
+POST {{host}}/api/chat
+Authorization: Basic {{studentUser}} {{studentPassword}}
 Content-Type: application/json
 
 {
@@ -39,8 +51,9 @@ Content-Type: application/json
   "sessionId": "s1"
 }
 
-### ⑤ 레드팀 — 다른 학번 조회(소유자 검증 차단 확인)
-POST {{host}}/api/chat?studentId=2021002
+### ⑤ 레드팀 — 인증은 2021002지만 쿼리 학번을 2021001로 위조(무시되는지 확인)
+POST {{host}}/api/chat?studentId=2021001
+Authorization: Basic {{otherStudentUser}} {{studentPassword}}
 Content-Type: application/json
 
 {
@@ -49,7 +62,8 @@ Content-Type: application/json
 }
 
 ### ⑥ 레드팀 — 시스템 프롬프트 공개 요청(SafeGuard 확인)
-POST {{host}}/api/chat?studentId=2021001
+POST {{host}}/api/chat
+Authorization: Basic {{studentUser}} {{studentPassword}}
 Content-Type: application/json
 
 {
@@ -61,13 +75,21 @@ Content-Type: application/json
 ### 확장 과제 — day3-consult-agent README 확장 과제 절, SpringAI_실습/ch12_ops 참고.
 
 ### 대화 이력 확인
-GET {{host}}/api/chat/history?sessionId=s1&studentId=2021001
+GET {{host}}/api/chat/history?sessionId=s1
+Authorization: Basic {{studentUser}} {{studentPassword}}
 
 ### 관리자 — 인제스트 청크 검사(Phase 2 심화)
 GET {{host}}/api/admin/chunks?q=졸업학점&topK=5
+Authorization: Basic {{adminUser}} {{adminPassword}}
 
 ### 관리자 — 승인 대기 수강철회 목록
 GET {{host}}/api/admin/withdrawal-requests/pending
+Authorization: Basic {{adminUser}} {{adminPassword}}
 
 ### 관리자 — 승인(사람이 누른다)
 POST {{host}}/api/admin/withdrawal-requests/WD-0001/approve
+Authorization: Basic {{adminUser}} {{adminPassword}}
+
+### 레드팀 — 학생 계정으로 관리자 승인 시도(403)
+POST {{host}}/api/admin/withdrawal-requests/WD-0001/approve
+Authorization: Basic {{studentUser}} {{studentPassword}}

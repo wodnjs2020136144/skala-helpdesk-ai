@@ -382,20 +382,32 @@ A 소유 설정을 임의로 고치지 않는다.
 
 ### 7-1. 인증과 인가
 
-- [ ] `permitAll`을 제거하고 역할 기반 인가를 적용한다.
-- [ ] 학생과 학사팀 관리자 역할을 분리한다.
-- [ ] `/api/admin/**`는 ADMIN만 접근할 수 있게 한다.
-- [ ] `AdminController`에 `@PreAuthorize("hasRole('ADMIN')")`를 적용한다.
-- [ ] Chat API의 학번을 요청 파라미터가 아니라 인증 `Principal`에서 가져온다.
-- [ ] 클라이언트가 학번을 위조해도 인증 주체가 바뀌지 않게 한다.
-- [ ] 일반 학생의 관리자 API 접근이 403인지 확인한다.
+- [x] `permitAll`을 제거하고 역할 기반 인가를 적용한다.
+- [x] 학생과 학사팀 관리자 역할을 분리한다.
+- [x] `/api/admin/**`는 ADMIN만 접근할 수 있게 한다.
+- [x] `AdminController`에 `@PreAuthorize("hasRole('ADMIN')")`를 적용한다.
+- [x] Chat API의 학번을 요청 파라미터가 아니라 인증 `Principal`에서 가져온다.
+- [x] 클라이언트가 학번을 위조해도 인증 주체가 바뀌지 않게 한다.
+- [x] 일반 학생의 관리자 API 접근이 403인지 확인한다.
 
 ### 7-2. 승인 게이트
 
 - [x] 수강철회 접수는 Tool에서 `PENDING`까지만 수행한다.
 - [x] 승인은 `AdminController`에서만 실행된다.
 - [x] 승인 메서드가 AI Tool 목록에 없는지 다시 확인한다.
-- [ ] 학생이 관리자라고 주장해도 승인되지 않는지 테스트한다.
+- [x] 학생이 관리자라고 주장해도 승인되지 않는지 테스트한다.
+
+### 2026-08-22 인증·인가 검증 결과
+
+- HTTP Basic 실습 계정을 학생(`2021001`, `2021002`)과 관리자(`admin`)로 분리
+- 기본 비밀번호는 로컬 재현용이며 `HELPDESK_STUDENT_PASSWORD`·`HELPDESK_ADMIN_PASSWORD`로 교체 가능
+- `SecurityAuthorizationTest` 7개로 다음을 확인
+  - 미인증 채팅 401
+  - 학생 채팅 200 및 `studentId` 쿼리 위조 무시
+  - 학생의 관리자 조회·승인 403
+  - 학생의 Actuator 운영 지표 접근 403(`health`만 공개)
+  - 관리자 API 200, 관리자의 학생 채팅 API 403
+- `http/samples.http`의 모든 학생·관리자 요청에 Basic 인증 예시를 반영
 
 ### 7-3. 감사 로그
 
