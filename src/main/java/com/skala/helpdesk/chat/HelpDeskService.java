@@ -143,12 +143,19 @@ public class HelpDeskService {
     }
 
     /**
-     * 실패한 시도가 남긴 사용자 메시지를 지우고 호출 직전 상태로 되돌린다. 세 실패 경로
-     * ({@link #ask} 참고) 모두 이 메서드 하나로 복구해 빠짐을 막는다.
+     * 실패한 시도가 남긴 사용자 메시지를 지우고 호출 직전 상태로 되돌린다. 동기 경로의 세
+     * 실패 경로({@link #ask})와 스트리밍 종료 경로({@link #streamEvents}) 모두 이 메서드
+     * 하나로 복구해 빠짐을 막는다 — 실제로 스트리밍 쪽이 오랫동안 빠져 있었다.
      */
     private void restoreMemory(String conversationId, List<Message> beforeAttempt) {
         chatMemory.clear(conversationId);
         chatMemory.add(conversationId, beforeAttempt);
+    }
+
+    /** 스트림이 끝맺지 못한 턴을 되돌린다({@link #streamEvents}의 두 종료 경로 공용). */
+    private void restoreAbandoned(String conversationId, List<Message> beforeAttempt, String signal) {
+        log.warn("스트림이 정상 종료되지 않아 메모리를 되돌립니다 signal={}", signal);
+        restoreMemory(conversationId, beforeAttempt);
     }
 
     private AnswerDto askWith(String modelOverride, String question, String studentId, String sessionId) {
@@ -212,16 +219,55 @@ public class HelpDeskService {
      * 방법이 없다. 오류는 그대로 {@code onError}로 전파한다 — {@code error} 이벤트에 실을
      * traceId는 MDC 기반이라 리액티브 스레드에서 못 만든다({@link StreamEvent} Javadoc
      * 참고), Controller가 HTTP 스레드에서 캡처해 붙인다.
+     *
+     * <p><b>실패로 끝나면 메모리를 되돌린다</b> — {@link #ask}와 같은 이유이고, 여기에는
+     * 오랫동안 빠져 있었다. {@code MessageChatMemoryAdvisor#before()}가 질문을 즉시
+     * 저장하는데 스트림이 죽어도 되돌리는 코드가 없어서 <b>답변 없는 질문</b>이 남았다.
+     *
+     * <p>통합 실측으로 확인한 것(2026-08-22, docs/검증-시나리오.md):
+     * <ul>
+     *   <li>모델 오류(토큰 0개)·타임아웃·클라이언트 연결 끊김 <b>세 경우 모두</b> 메모리에
+     *       질문 1건만 남았다.</li>
+     *   <li><b>토큰이 96개나 나간 뒤 끊어도 assistant 메시지는 저장되지 않는다.</b> 그래서
+     *       "사용자가 일부라도 본 턴은 남긴다"는 선택지가 성립하지 않는다 — 남겨 봐야 질문만
+     *       있는 반쪽 턴이다.</li>
+     *   <li>그 상태에서 같은 세션에 "방금 설명해준 거 다시 정리해줘"를 보내니 메모리가
+     *       {@code USER → USER → ASSISTANT}가 되고, 모델이 가리킬 답변을 찾지 못해
+     *       "정확한 규정을 확인할 수 없습니다"로 답했다. 실제로 다음 턴이 깨진다.</li>
+     * </ul>
+     *
+     * <p><b>왜 두 갈래로 나눠 잡는가</b> — 타임아웃은 이 메서드 바깥,
+     * {@code ChatController}의 {@code .timeout(streamTimeout)}에 걸려 있다. 그래서 모델
+     * 오류만 여기서 {@code onError}로 보이고, <b>타임아웃과 클라이언트 연결 끊김은
+     * 취소로 보인다</b>(실측 로그로 확인: 각각 {@code signal=onError}·{@code signal=cancel}).
+     * 한쪽만 붙이면 셋 중 일부를 놓친다.
+     *
+     * <p><b>{@code doFinally} 하나로 묶지 않는 이유</b>(PR #14 교차 리뷰 지적) —
+     * {@code doFinally}는 종료 신호를 <b>다운스트림에 전달한 뒤</b> 실행된다. 그러면
+     * Controller의 {@code onErrorResume}이 복구가 끝나기 전에 {@code error → done}을
+     * 내보낼 수 있고, 클라이언트가 곧바로 같은 세션으로 다시 물으면 아직 지워지지 않은
+     * 반쪽 질문을 볼 수 있다. 단위 테스트에서도 같은 경합이 간헐 실패로 드러났다.
+     * {@code doOnError}는 오류를 다운스트림에 넘기기 <b>전에</b> 실행되므로 순서가
+     * 보장된다.
+     *
+     * <p>정상 완료에는 어느 쪽도 걸리지 않는다 — 정상 대화까지 지우면 안 되므로 이게
+     * 핵심이고, 테스트로 고정했다. 두 콜백이 한 요청에서 함께 불릴 일은 없지만,
+     * {@link #restoreMemory}는 "스냅샷으로 덮어쓰기"라 여러 번 불려도 결과가 같다.
+     *
+     * <p>스냅샷은 반드시 {@code Flux.defer} <b>안</b>에서 뜬다. 밖에 두면 동시 요청이 서로의
+     * 스냅샷을 보고 남의 대화를 복구한다(아래 요청 단위 상태들과 같은 이유).
      */
     public Flux<StreamEvent> streamEvents(String question, String studentId, String sessionId) {
+        String conversationId = conversationId(studentId, sessionId);
         return Flux.defer(() -> {
             AtomicBoolean toolUsed = new AtomicBoolean(false);
             StringBuilder answer = new StringBuilder();
             AtomicReference<ChatClientResponse> responseForSources = new AtomicReference<>();
             AtomicInteger toolCallCounter = new AtomicInteger(0);
+            List<Message> beforeAttempt = chatMemory.get(conversationId);
 
             return chat.prompt().user(question)
-                    .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId(studentId, sessionId)))
+                    .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
                     .toolContext(Map.of(
                             "studentId", studentId,
                             "toolUsed", toolUsed,
@@ -241,7 +287,12 @@ public class HelpDeskService {
                                 ? List.of()
                                 : sourcesFrom(answer.toString(), response);
                         return Flux.just(new Sources(sources), new Done(toolUsed.get()));
-                    }));
+                    }))
+                    // 오류는 다운스트림에 넘기기 전에 되돌린다 — Controller가 error 이벤트를
+                    // 내보낸 뒤 복구가 끝나면 그 사이 재요청이 반쪽 질문을 본다.
+                    .doOnError(error -> restoreAbandoned(conversationId, beforeAttempt, "onError"))
+                    // 타임아웃·연결 끊김은 오류가 아니라 취소로 도착한다.
+                    .doOnCancel(() -> restoreAbandoned(conversationId, beforeAttempt, "cancel"));
         });
     }
 
