@@ -9,6 +9,7 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,13 +29,14 @@ import io.swagger.v3.oas.annotations.tags.Tag;
  * 없다.</b> 그래서 모델은 아무리 지시받아도 이 엔드포인트를 부를 수 없다 — "승인까지
  * 네가 해줘" 같은 레드팀 공격(검증 시나리오 ⑥)이 막히는 이유가 이것이다.
  *
- * <p>Phase 7에서 {@code SecurityConfig}가 완성되면 이 컨트롤러 전체에
- * {@code @PreAuthorize("hasRole('ADMIN')")}를 적용한다(지금은 미적용 — TODO).
+ * <p>이 컨트롤러 전체에 {@code @PreAuthorize("hasRole('ADMIN')")}를 적용해 학생 계정과
+ * AI Tool이 승인·진단 경로에 접근하지 못하게 한다.
  *
  * <p>참고: {@code day3-consult-agent/web/AdminController.java}, 교안 Phase 2 심화 코드(p.315)
  */
 @RestController
 @Tag(name = "HelpDesk · 관리자(학사팀)")
+@PreAuthorize("hasRole('ADMIN')")
 public class AdminController {
 
     private static final String APPLIED_THRESHOLD_HEADER = "X-Applied-Similarity-Threshold";

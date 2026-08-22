@@ -58,6 +58,33 @@ class HelpDeskServiceTest {
                 .isNotEqualTo(service.conversationId("2021001", "s2"));
     }
 
+    // --- studentIdFrom: PR #6 리뷰에서 지적받은 AuditAdvisor의 파싱 의존을 해소하는 헬퍼 ---
+
+    @Test
+    void studentIdFrom_conversationId에서_학번을_되돌려_뽑는다() {
+        HelpDeskService service = new HelpDeskService(null, null, null, null);
+
+        String conversationId = service.conversationId("2021001", "s1");
+
+        assertThat(HelpDeskService.studentIdFrom(conversationId)).isEqualTo("2021001");
+    }
+
+    @Test
+    void studentIdFrom_세션ID에_콜론이_섞여도_학번만_정확히_뽑는다() {
+        HelpDeskService service = new HelpDeskService(null, null, null, null);
+
+        String conversationId = service.conversationId("2021001", "room:42");
+
+        assertThat(HelpDeskService.studentIdFrom(conversationId)).isEqualTo("2021001");
+    }
+
+    @Test
+    void studentIdFrom_형식이_어긋나면_예외_대신_unknown을_반환한다() {
+        assertThat(HelpDeskService.studentIdFrom("망가진값")).isEqualTo("unknown");
+        assertThat(HelpDeskService.studentIdFrom(null)).isEqualTo("unknown");
+        assertThat(HelpDeskService.studentIdFrom("다른테넌트:2021001:s1")).isEqualTo("unknown");
+    }
+
     // --- sourcesFrom: RAG 근거 추출·중복 제거·근거 없음 처리 ---
 
     @Test
@@ -163,13 +190,46 @@ class HelpDeskServiceTest {
     }
 
     @Test
-    void 폴백이_꺼져있으면_주_모델_실패가_그대로_전파된다() {
+    void 폴백이_꺼져있으면_주_모델_실패가_그대로_전파되고_실패한_질문은_메모리에_남지_않는다() {
         List<Message> saved = new ArrayList<>();
         HelpDeskService service = serviceWithChain(saved, new FailOnceModel(), fallbackEnabled(false));
 
         assertThatThrownBy(() -> service.ask("졸업 학점 요건이 어떻게 돼요?", "2021001", "s1"))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("주 모델 장애 주입");
+
+        assertThat(saved).isEmpty();
+    }
+
+    /**
+     * PR #5 교차 리뷰(성우님) 지적 — 폴백까지 실패하는 경로에서는 {@code beforeAttempt}로
+     * 되돌리는 코드가 아예 없었다. {@code MessageChatMemoryAdvisor#before()}가 호출 전에
+     * 질문을 즉시 저장하므로, 그대로 두면 답변 없는 질문 1개가 메모리에 남아 다음 턴의
+     * 맥락을 오염시킨다.
+     */
+    @Test
+    void 폴백까지_실패하면_메모리도_복구되어_답변없는_턴이_남지_않는다() {
+        List<Message> saved = new ArrayList<>();
+        HelpDeskService service = serviceWithChain(saved, new AlwaysFailModel(), fallbackEnabled(true));
+
+        assertThatThrownBy(() -> service.ask("졸업 학점 요건이 어떻게 돼요?", "2021001", "s1"))
+                .isInstanceOf(RuntimeException.class);
+
+        assertThat(saved).isEmpty();
+    }
+
+    /** 이전에 성공한 턴은 이후 턴의 폴백 실패로 인한 메모리 복구에 휩쓸리지 않아야 한다. */
+    @Test
+    void 이전_턴이_있는_상태에서_폴백까지_실패해도_이전_턴은_보존된다() {
+        List<Message> saved = new ArrayList<>();
+        HelpDeskService warmup = serviceWithChain(saved, new AlwaysOkModel(), fallbackEnabled(false));
+        warmup.ask("1번째 질문", "2021001", "s1");
+        assertThat(saved).hasSize(2);
+
+        HelpDeskService service = serviceWithChain(saved, new AlwaysFailModel(), fallbackEnabled(true));
+        assertThatThrownBy(() -> service.ask("2번째 질문", "2021001", "s1")).isInstanceOf(RuntimeException.class);
+
+        assertThat(saved).extracting(Message::getText).containsExactly("1번째 질문", "ok");
     }
 
     // --- 테스트 헬퍼 ---
@@ -236,6 +296,20 @@ class HelpDeskServiceTest {
         @Override
         public ChatResponse call(Prompt prompt) {
             return new ChatResponse(List.of(new Generation(new AssistantMessage("ok"))));
+        }
+
+        @Override
+        public ChatOptions getOptions() {
+            return ChatOptions.builder().build();
+        }
+    }
+
+    /** 주 모델·폴백 모델 구분 없이 매번 실패한다 — 폴백까지 실패하는 경로를 재현한다. */
+    private static final class AlwaysFailModel implements ChatModel {
+
+        @Override
+        public ChatResponse call(Prompt prompt) {
+            throw new RuntimeException("주 모델·폴백 모두 장애 주입");
         }
 
         @Override

@@ -7,8 +7,12 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.tool.execution.ToolExecutionExceptionProcessor;
+import org.springframework.ai.tool.resolution.ToolCallbackResolver;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.Resource;
@@ -18,7 +22,10 @@ import com.skala.helpdesk.advisor.AuditAdvisor;
 import com.skala.helpdesk.advisor.SafeGuardAdvisor;
 import com.skala.helpdesk.advisor.TokenMeterAdvisor;
 import com.skala.helpdesk.tools.AcademicTools;
+import com.skala.helpdesk.tools.BoundedToolCallingManager;
 import com.skala.helpdesk.tools.RequestTools;
+
+import io.micrometer.observation.ObservationRegistry;
 
 /**
  * 담당: A(첫 번째 책임자) · 리뷰: B — Phase 1 (교안 p.313).
@@ -64,6 +71,27 @@ public class AiConfig {
                                 .build())
                 .defaultTools(academicTools, requestTools)
                 .build();
+    }
+
+    /**
+     * {@code helpdesk.tool.max-calls}를 실제로 강제하는 연결 지점(PR #6 리뷰 질문 3).
+     * Spring AI 2.0의 {@code ToolCallingAutoConfiguration}이 등록하는 기본 빈과 똑같은
+     * 협력자({@code ToolCallbackResolver}·{@code ToolExecutionExceptionProcessor}·
+     * {@code ObservationRegistry})로 위임 대상을 만들고 {@link BoundedToolCallingManager}로
+     * 감싼다 — {@code @ConditionalOnMissingBean}이라 이 빈이 있으면 기본 빈은 등록되지 않고,
+     * {@code OpenAiChatModel} 빈이 이 빈을 그대로 받아 쓴다.
+     */
+    @Bean
+    public ToolCallingManager toolCallingManager(ToolCallbackResolver toolCallbackResolver,
+                                                 ToolExecutionExceptionProcessor toolExecutionExceptionProcessor,
+                                                 ObjectProvider<ObservationRegistry> observationRegistry,
+                                                 HelpDeskProperties props) {
+        ToolCallingManager delegate = ToolCallingManager.builder()
+                .observationRegistry(observationRegistry.getIfUnique(() -> ObservationRegistry.NOOP))
+                .toolCallbackResolver(toolCallbackResolver)
+                .toolExecutionExceptionProcessor(toolExecutionExceptionProcessor)
+                .build();
+        return new BoundedToolCallingManager(delegate, props.tool().maxCalls());
     }
 
     private String systemPrompt() throws IOException {

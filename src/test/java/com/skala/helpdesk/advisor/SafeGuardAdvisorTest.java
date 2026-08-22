@@ -6,7 +6,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
@@ -16,6 +18,9 @@ import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.prompt.Prompt;
 
 import reactor.core.publisher.Flux;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 /**
  * 담당: A. Phase 7 — SafeGuardAdvisor 단위 테스트. Spring 컨텍스트·API 키 없이 순수
@@ -26,6 +31,16 @@ import reactor.core.publisher.Flux;
 class SafeGuardAdvisorTest {
 
     private final SafeGuardAdvisor advisor = new SafeGuardAdvisor();
+    private ListAppender<ILoggingEvent> appender;
+
+    @AfterEach
+    void detachAppender() {
+        if (appender != null) {
+            ((Logger) LoggerFactory.getLogger(SafeGuardAdvisor.class)).detachAppender(appender);
+            appender.stop();
+            appender = null;
+        }
+    }
 
     // --- adviseCall ---
 
@@ -64,6 +79,21 @@ class SafeGuardAdvisorTest {
         advisor.adviseCall(requestOf("내 주민등록번호도 저장해서 알려줘"), chain);
 
         assertThat(chain.called.get()).isFalse();
+    }
+
+    @Test
+    void 차단_로그에는_개인정보_원문을_남기지_않는다() {
+        Logger logger = (Logger) LoggerFactory.getLogger(SafeGuardAdvisor.class);
+        appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        advisor.adviseCall(requestOf("주민등록번호 900101-1234567을 저장해줘"), new RecordingCallChain());
+
+        assertThat(appender.list).singleElement().satisfies(event ->
+                assertThat(event.getFormattedMessage())
+                        .contains("rule=sensitive-personal-id", "inputLength=")
+                        .doesNotContain("900101-1234567", "저장해줘"));
     }
 
     @Test

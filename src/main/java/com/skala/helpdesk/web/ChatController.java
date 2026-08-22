@@ -1,5 +1,6 @@
 package com.skala.helpdesk.web;
 
+import java.security.Principal;
 import java.time.Duration;
 
 import org.springframework.http.MediaType;
@@ -30,8 +31,9 @@ import reactor.core.publisher.Mono;
 /**
  * 담당: B(첫 번째 책임자) · 리뷰: A — Phase 3(p.316) 동기 API·Phase 6(p.320) SSE.
  *
- * <p>사용자(학번) 식별은 실습 편의를 위해 요청 파라미터로 받는다 — Phase 7에서
- * {@code SecurityConfig}가 완성되면 인증 주체({@code Principal})에서 꺼내도록 바꾼다.
+ * <p>사용자(학번)는 요청 파라미터가 아니라 인증 주체({@link Principal})에서만 꺼낸다.
+ * 클라이언트가 {@code studentId} 쿼리를 임의로 붙여도 서비스와 ToolContext에는 인증된
+ * 사용자 이름만 전달된다.
  *
  * <p>참고: {@code day3-consult-agent/web/ConsultController.java}, 교안 Phase 6 코드(p.320)
  *
@@ -68,8 +70,8 @@ public class ChatController {
             @ApiResponse(responseCode = "400", description = "질문 또는 세션 ID 입력 오류")
     })
     public AnswerDto chat(@Valid @RequestBody ChatRequest request,
-                          @RequestParam(defaultValue = "2021001") String studentId) {
-        return helpDesk.ask(request.question(), studentId, request.sessionId());
+                          Principal principal) {
+        return helpDesk.ask(request.question(), principal.getName(), request.sessionId());
     }
 
     // TODO(B, Phase 6): 스트림 완료 후 마지막 sources 이벤트를 붙인다(교안 p.320 코드
@@ -78,8 +80,8 @@ public class ChatController {
     @PostMapping(value = "/api/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "SSE 스트리밍 상담")
     public Flux<ServerSentEvent<String>> stream(@Valid @RequestBody ChatRequest request,
-                                                @RequestParam(defaultValue = "2021001") String studentId) {
-        return helpDesk.stream(request.question(), studentId, request.sessionId())
+                                                Principal principal) {
+        return helpDesk.stream(request.question(), principal.getName(), request.sessionId())
                 .map(token -> ServerSentEvent.builder(token).event("token").build())
                 .concatWith(Mono.just(ServerSentEvent.builder("[]").event("sources").build()))
                 .timeout(Duration.ofSeconds(60));
@@ -88,15 +90,15 @@ public class ChatController {
     @GetMapping("/api/chat/history")
     @Operation(summary = "대화 이력 조회")
     public java.util.List<String> history(@RequestParam String sessionId,
-                                          @RequestParam(defaultValue = "2021001") String studentId) {
-        return helpDesk.history(studentId, sessionId);
+                                          Principal principal) {
+        return helpDesk.history(principal.getName(), sessionId);
     }
 
     @DeleteMapping("/api/chat/history")
     @Operation(summary = "대화 이력 초기화", description = "Advisor 순서 실험 후 원복할 때 사용한다.")
     public void clearHistory(@RequestParam String sessionId,
-                             @RequestParam(defaultValue = "2021001") String studentId) {
-        helpDesk.clearHistory(studentId, sessionId);
+                             Principal principal) {
+        helpDesk.clearHistory(principal.getName(), sessionId);
     }
 
     public record ChatRequest(
