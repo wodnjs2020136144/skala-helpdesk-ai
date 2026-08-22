@@ -1,12 +1,22 @@
 package com.skala.helpdesk.advisor;
 
+import java.util.UUID;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
+import org.springframework.ai.chat.client.advisor.api.StreamAdvisor;
+import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.stereotype.Component;
+
+import com.skala.helpdesk.web.TraceIdFilter;
+
+import reactor.core.publisher.Flux;
 
 /**
  * 담당: B(첫 번째 책임자) · 리뷰: A.
@@ -26,25 +36,42 @@ import org.springframework.stereotype.Component;
  * 개인정보가 로그에 원문 그대로 남지 않는다(마스킹).
  */
 @Component
-public class AuditAdvisor implements CallAdvisor {
+public class AuditAdvisor implements CallAdvisor, StreamAdvisor {
 
     private static final Logger audit = LoggerFactory.getLogger("AI_TOOL_AUDIT");
 
     @Override
     public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
-        long start = System.currentTimeMillis();
+        long start = System.nanoTime();
+        AuditIdentity identity = identity(request);
         try {
             ChatClientResponse response = chain.nextCall(request);
-            // TODO(B, Phase 7): 사용자·질문·응답 길이·소요시간을 감사 로그에 남긴다.
-            // 학번·성적 등 개인정보가 원문 그대로 로그에 남지 않도록 마스킹한다
-            // (day3-consult-agent ToolAuditAspect#mask 패턴 참고).
-            audit.info("chat call ok elapsedMs={}", System.currentTimeMillis() - start);
+            audit.info("chat call ok traceId={} user={} responseChars={} elapsedMs={}",
+                    identity.traceId(), identity.maskedUser(), responseChars(response), elapsedMillis(start));
             return response;
         } catch (RuntimeException e) {
-            audit.warn("chat call failed elapsedMs={} error={}",
-                    System.currentTimeMillis() - start, e.getMessage());
+            audit.warn("chat call failed traceId={} user={} elapsedMs={} errorType={}",
+                    identity.traceId(), identity.maskedUser(), elapsedMillis(start),
+                    e.getClass().getSimpleName());
             throw e;
         }
+    }
+
+    @Override
+    public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
+        long start = System.nanoTime();
+        AuditIdentity identity = identity(request);
+        return chain.nextStream(request)
+                .doOnComplete(() -> audit.info(
+                        "chat stream ok traceId={} user={} elapsedMs={}",
+                        identity.traceId(), identity.maskedUser(), elapsedMillis(start)))
+                .doOnError(error -> audit.warn(
+                        "chat stream failed traceId={} user={} elapsedMs={} errorType={}",
+                        identity.traceId(), identity.maskedUser(), elapsedMillis(start),
+                        error.getClass().getSimpleName()))
+                .doOnCancel(() -> audit.info(
+                        "chat stream cancelled traceId={} user={} elapsedMs={}",
+                        identity.traceId(), identity.maskedUser(), elapsedMillis(start)));
     }
 
     @Override
@@ -56,5 +83,44 @@ public class AuditAdvisor implements CallAdvisor {
     @Override
     public int getOrder() {
         return 0;
+    }
+
+    private AuditIdentity identity(ChatClientRequest request) {
+        String traceId = MDC.get(TraceIdFilter.MDC_KEY);
+        if (traceId == null || traceId.isBlank()) {
+            traceId = UUID.randomUUID().toString();
+        }
+        Object conversationId = request.context().get(ChatMemory.CONVERSATION_ID);
+        return new AuditIdentity(traceId, maskedUser(conversationId));
+    }
+
+    private String maskedUser(Object conversationId) {
+        if (!(conversationId instanceof String value)) {
+            return "unknown";
+        }
+        String[] parts = value.split(":", 3);
+        if (parts.length != 3 || parts[1].isBlank()) {
+            return "unknown";
+        }
+        String studentId = parts[1];
+        int visible = Math.min(3, studentId.length());
+        return studentId.substring(0, visible) + "*".repeat(studentId.length() - visible);
+    }
+
+    private int responseChars(ChatClientResponse response) {
+        if (response == null || response.chatResponse() == null
+                || response.chatResponse().getResult() == null
+                || response.chatResponse().getResult().getOutput() == null
+                || response.chatResponse().getResult().getOutput().getText() == null) {
+            return 0;
+        }
+        return response.chatResponse().getResult().getOutput().getText().length();
+    }
+
+    private long elapsedMillis(long start) {
+        return (System.nanoTime() - start) / 1_000_000;
+    }
+
+    private record AuditIdentity(String traceId, String maskedUser) {
     }
 }
