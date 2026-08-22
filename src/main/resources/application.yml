@@ -26,6 +26,11 @@ spring:
       client:
         observations:
           log-prompt: false
+        # JdbcChatMemoryRepository는 도구 호출 중간 메시지를 저장하지 않는다.
+        # Tool Calling을 Memory(200)와 RAG(300) 뒤에 두어 중간 반복은 내부 이력으로
+        # 처리한다. RAG가 도구 호출마다 중복 실행되는 임베딩 비용도 막는다.
+        tool-calling:
+          advisor-order: 350
       # JdbcChatMemoryRepository 기본값은 "embedded"라 H2 등에서만 자동으로 스키마를 만든다.
       # 우리는 외부 pgvector(Postgres)를 쓰므로 always로 켜지 않으면 spring_ai_chat_memory
       # 테이블이 없어 첫 대화부터 500이 난다(Phase 5, 검증 시나리오 ①·③ 실측 중 발견).
@@ -45,6 +50,7 @@ spring:
 helpdesk:
   rag:
     top-k: 5
+    inspection-max-top-k: 50 # 관리자 진단은 운영 검색보다 넓게 청크를 살펴볼 수 있다.
     threshold: 0.3   # 실측 조정(2026-08-21): 자연어 질문 기준 무관 질의 최고 0.287, 자퇴 0.369,
                       # 제적 0.434, 휴학·졸업요건 0.5+. 0.5는 무관 질문은 잘 걸렀지만 자퇴·제적처럼
                       # 근거가 실제로 있는 질문까지 걸러냈다(재현율 손실) — docs/검증-시나리오.md ① 참고
