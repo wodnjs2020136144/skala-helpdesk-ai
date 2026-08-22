@@ -40,6 +40,7 @@ import reactor.core.publisher.Flux;
 public class HelpDeskService {
 
     private static final Logger log = LoggerFactory.getLogger(HelpDeskService.class);
+    private static final String NO_EVIDENCE_MESSAGE = "정확한 규정을 확인할 수 없습니다";
 
     private final ChatClient chat;
     private final ChatMemory chatMemory;
@@ -119,7 +120,7 @@ public class HelpDeskService {
         ChatClientResponse response = request.call().chatClientResponse();
 
         String answer = response.chatResponse().getResult().getOutput().getText();
-        return new AnswerDto(answer, sourcesFrom(response), toolUsed.get());
+        return new AnswerDto(answer, sourcesFrom(answer, response), toolUsed.get());
     }
 
     /**
@@ -162,5 +163,17 @@ public class HelpDeskService {
                         String.valueOf(d.getMetadata().get("version"))))
                 .distinct()
                 .toList();
+    }
+
+    /**
+     * 모델이 근거 없음 계약으로 답했다면 유사도 임계값을 넘은 무관 문서를
+     * 응답 출처로 노출하지 않는다. 시스템 프롬프트가 이 문구를 근거 없음의
+     * 표준 응답으로 정의한다.
+     */
+    protected List<Source> sourcesFrom(String answer, ChatClientResponse response) {
+        if (answer != null && answer.contains(NO_EVIDENCE_MESSAGE)) {
+            return List.of();
+        }
+        return sourcesFrom(response);
     }
 }

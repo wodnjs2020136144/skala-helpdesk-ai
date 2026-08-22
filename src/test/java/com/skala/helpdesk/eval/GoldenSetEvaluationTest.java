@@ -42,10 +42,12 @@ class GoldenSetEvaluationTest {
         List<Evaluation> results = new ArrayList<>();
 
         for (Case testCase : GoldenSet.academicHelpDesk().cases()) {
+            String sessionId = "golden-" + testCase.id().toLowerCase(Locale.ROOT);
+            helpDeskService.clearHistory(testCase.studentId(), sessionId);
             long started = System.nanoTime();
             try {
                 AnswerDto answer = helpDeskService.ask(testCase.question(), testCase.studentId(),
-                        "golden-" + testCase.id().toLowerCase(Locale.ROOT));
+                        sessionId);
                 long durationMs = elapsedMillis(started);
                 boolean sourcePassed = sourcePassed(testCase, answer);
                 boolean keywordsPassed = keywordsPassed(testCase, answer.answer());
@@ -58,6 +60,9 @@ class GoldenSetEvaluationTest {
             catch (Exception exception) {
                 results.add(new Evaluation(testCase, elapsedMillis(started), false, false, false,
                         List.of(), exception.getClass().getSimpleName()));
+            }
+            finally {
+                helpDeskService.clearHistory(testCase.studentId(), sessionId);
             }
         }
 

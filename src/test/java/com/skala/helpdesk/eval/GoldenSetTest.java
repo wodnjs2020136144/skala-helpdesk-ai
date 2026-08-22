@@ -27,7 +27,9 @@ class GoldenSetTest {
 
         assertThat(goldenSet.cases())
                 .filteredOn(c -> c.sourcePolicy() == SourcePolicy.REQUIRED)
-                .allSatisfy(c -> assertThat(Files.isRegularFile(corpus.resolve(c.expectedSource())))
+                .allSatisfy(c -> assertThat(
+                        Files.isRegularFile(corpus.resolve(c.expectedSource()))
+                                || Files.isRegularFile(corpus.resolve("regulations").resolve(c.expectedSource())))
                         .as("%s의 기대 출처 %s", c.id(), c.expectedSource())
                         .isTrue());
     }

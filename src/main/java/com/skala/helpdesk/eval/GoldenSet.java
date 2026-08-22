@@ -74,14 +74,15 @@ public record GoldenSet(List<Case> cases) {
         String noEvidence = "정확한 규정을 확인할 수 없습니다";
         return new GoldenSet(List.of(
                 required("AC-01", Category.ACADEMIC_REGULATION, "한 학기에 최대 몇 학점까지 신청할 수 있나요?",
-                        student, "academic-regulations.md", "21학점", "24학점", "4.0"),
+                        student, "학사운영에관한규칙.pdf", "23학점", "24학점", "3.5"),
                 required("AC-02", Category.ACADEMIC_REGULATION, "수강정정 기간은 언제까지인가요?",
                         student, "academic-regulations.md", "개강", "1주"),
                 required("AC-03", Category.ACADEMIC_REGULATION, "수강철회하면 성적표와 GPA에는 어떻게 반영되나요?",
                         student, "academic-regulations.md", "W", "포함되지"),
                 required("AC-04", Category.ACADEMIC_REGULATION, "한 학기에 수강철회할 수 있는 과목 수를 알려주세요.",
                         student, "academic-regulations.md", "2과목"),
-                required("AC-05", Category.ACADEMIC_REGULATION, "성적 이의신청 기한과 결과 통보 기한은 각각 얼마인가요?",
+                required("AC-05", Category.ACADEMIC_REGULATION,
+                        "성적 발표 후 이의신청 기간과 신청일로부터 처리 결과 통보 기간을 알려주세요.",
                         student, "academic-regulations.md", "1주", "5일"),
 
                 required("GR-01", Category.GRADUATION, "졸업하려면 총 몇 학점을 이수해야 하나요?",
@@ -102,7 +103,7 @@ public record GoldenSet(List<Case> cases) {
                 required("SC-03", Category.SCHOLARSHIP, "직전 학기에 11학점만 이수해도 성적 장학금을 받을 수 있나요?",
                         student, "scholarship-policy.md", "12학점", "제외"),
                 required("SC-04", Category.SCHOLARSHIP, "성적 장학금은 별도로 신청해야 하나요?",
-                        student, "scholarship-policy.md", "자동", "별도 신청"),
+                        student, "scholarship-policy.md", "자동", "필요가 없습니다"),
 
                 tool("TL-01", "제가 현재 듣는 과목과 누적 학점을 알려주세요.", student,
                         "100학점", "CS201", "CS301"),

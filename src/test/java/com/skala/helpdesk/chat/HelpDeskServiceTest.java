@@ -86,6 +86,30 @@ class HelpDeskServiceTest {
         assertThat(service.sourcesFrom(response)).isEmpty();
     }
 
+    @Test
+    void 근거_없음_응답에는_검색된_무관_문서를_출처로_반환하지_않는다() {
+        HelpDeskService service = new HelpDeskService(null, null, null, null);
+        Document unrelated = new Document("무관한 학칙 본문",
+                Map.of("source", "한국기술교육대학교_학칙.pdf", "version", "2026-03-31"));
+        ChatClientResponse response = responseWithDocuments(List.of(unrelated));
+
+        List<Source> sources = service.sourcesFrom("정확한 규정을 확인할 수 없습니다.", response);
+
+        assertThat(sources).isEmpty();
+    }
+
+    @Test
+    void 근거가_있는_응답은_검색_출처를_그대로_반환한다() {
+        HelpDeskService service = new HelpDeskService(null, null, null, null);
+        Document evidence = new Document("졸업 학점 규정",
+                Map.of("source", "graduation-requirements.md", "version", "2026-08"));
+        ChatClientResponse response = responseWithDocuments(List.of(evidence));
+
+        List<Source> sources = service.sourcesFrom("졸업에는 130학점이 필요합니다.", response);
+
+        assertThat(sources).containsExactly(new Source("graduation-requirements.md", "2026-08"));
+    }
+
     // --- SafeGuard(100) < Memory(200): 차단된 입력이 메모리에 남지 않는다 ---
 
     @Test
