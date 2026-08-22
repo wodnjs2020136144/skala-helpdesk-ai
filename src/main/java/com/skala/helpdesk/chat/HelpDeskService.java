@@ -3,6 +3,7 @@ package com.skala.helpdesk.chat;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +18,8 @@ import org.springframework.stereotype.Service;
 
 import com.skala.helpdesk.chat.AnswerDto.Source;
 import com.skala.helpdesk.config.AiOpsProperties;
+import com.skala.helpdesk.tools.BoundedToolCallingManager;
+import com.skala.helpdesk.tools.ToolCallLimitExceededException;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
@@ -77,9 +80,15 @@ public class HelpDeskService {
      *
      * <p><b>메모리 중복 저장 방지</b> — {@code MessageChatMemoryAdvisor#before()}는 모델
      * 호출 성공 여부와 무관하게 사용자 메시지를 <i>즉시</i> 저장한다(실측 확인, Spring AI
-     * 2.0 소스). 그래서 1차 호출이 실패해도 질문은 이미 메모리에 한 번 저장된 뒤다 — 재시도
-     * 전에 호출 직전 스냅샷으로 되돌려, 재시도가 자신만의 사용자·어시스턴트 메시지 한 쌍을
-     * 깨끗하게 저장하게 한다(그렇지 않으면 같은 질문이 두 번 쌓인다).
+     * 2.0 소스). 그래서 1차 호출이 실패해도 질문은 이미 메모리에 한 번 저장된 뒤다 —
+     * {@link #restoreMemory}로 호출 직전 스냅샷으로 되돌려야 한다. <b>세 경로 모두</b>에서
+     * 되돌린다: 폴백 재시도 전, 폴백이 꺼져 있어 바로 전파할 때, 폴백까지 실패했을 때
+     * (PR #5 교차 리뷰에서 폴백 최종 실패 경로의 누락을 지적받아 세 번째를 추가했다 — 그대로
+     * 두면 답변 없는 질문 1개가 메모리에 남아 다음 턴 맥락을 오염시킨다).
+     *
+     * <p><b>도구 호출 상한 초과는 폴백하지 않는다</b> — {@link ToolCallLimitExceededException}
+     * 은 모델 장애가 아니라 우리 안전장치가 의도적으로 발동한 것이라, 폴백이 새 요청 단위
+     * 카운터로 도구를 처음부터 다시 호출하게 두면 상한이 사실상 두 배가 된다.
      */
     public AnswerDto ask(String question, String studentId, String sessionId) {
         String conversationId = conversationId(studentId, sessionId);
@@ -87,31 +96,48 @@ public class HelpDeskService {
 
         try {
             return askWith(null, question, studentId, sessionId);
+        } catch (ToolCallLimitExceededException limitExceeded) {
+            restoreMemory(conversationId, beforeAttempt);
+            throw limitExceeded;
         } catch (RuntimeException primaryFailure) {
             if (!aiOps.fallback().enabled()) {
+                restoreMemory(conversationId, beforeAttempt);
                 throw primaryFailure;
             }
             log.warn("주 모델 호출 실패 — 폴백 모델로 재시도합니다 model={} cause={}",
                     aiOps.fallback().model(), primaryFailure.getMessage());
-            chatMemory.clear(conversationId);
-            chatMemory.add(conversationId, beforeAttempt);
+            restoreMemory(conversationId, beforeAttempt);
             try {
                 AnswerDto fallbackAnswer = askWith(aiOps.fallback().model(), question, studentId, sessionId);
                 registry.counter("ai.fallback", Tags.of("outcome", "success")).increment();
                 return fallbackAnswer;
             } catch (RuntimeException fallbackFailure) {
+                restoreMemory(conversationId, beforeAttempt);
                 registry.counter("ai.fallback", Tags.of("outcome", "failed")).increment();
                 throw fallbackFailure;
             }
         }
     }
 
+    /**
+     * 실패한 시도가 남긴 사용자 메시지를 지우고 호출 직전 상태로 되돌린다. 세 실패 경로
+     * ({@link #ask} 참고) 모두 이 메서드 하나로 복구해 빠짐을 막는다.
+     */
+    private void restoreMemory(String conversationId, List<Message> beforeAttempt) {
+        chatMemory.clear(conversationId);
+        chatMemory.add(conversationId, beforeAttempt);
+    }
+
     private AnswerDto askWith(String modelOverride, String question, String studentId, String sessionId) {
         AtomicBoolean toolUsed = new AtomicBoolean(false);
+        AtomicInteger toolCallCounter = new AtomicInteger(0);
 
         ChatClient.ChatClientRequestSpec request = chat.prompt().user(question)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId(studentId, sessionId)))
-                .toolContext(Map.of("studentId", studentId, "toolUsed", toolUsed));
+                .toolContext(Map.of(
+                        "studentId", studentId,
+                        "toolUsed", toolUsed,
+                        BoundedToolCallingManager.TOOL_CALL_COUNTER, toolCallCounter));
         if (modelOverride != null) {
             request = request.options(ChatOptions.builder().model(modelOverride));
         }
