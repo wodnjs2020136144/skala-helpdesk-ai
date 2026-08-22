@@ -64,7 +64,8 @@ Audit(0) → TokenMeter(10) → SafeGuard(100) → Memory(200) → RAG(300)
 `classpath:helpdesk-docs/*.md` 앵커 3종 + `helpdesk-docs/regulations/*.pdf` 학사규정 3종
 (학칙·학사운영에관한규칙·장학금에관한규칙, 출처는 `helpdesk-docs/regulations/README.md`)을
 인제스트하고, 메타데이터 `source`·`docType`·`dept`·`version`을 붙인다. `docType`은
-md 3종(`academic`)에 PDF 3종(`학칙`/`교무행정`/`학생행정`)이 더해져 총 6종이다.
+md 3종이 전부 `academic` 하나로 묶여 있고, 여기에 PDF 3종(`학칙`/`교무행정`/`학생행정`)이
+더해져 총 4종이다.
 `HelpDeskService#sourcesFrom`이 응답 컨텍스트의
 `QuestionAnswerAdvisor.RETRIEVED_DOCUMENTS`에서 이 메타데이터를 꺼내 `AnswerDto.Source`를
 만든다 — **`enrich`의 메타데이터 키를 바꾸면 출처 표기가 조용히 깨진다.**
@@ -97,8 +98,8 @@ md 3종(`academic`)에 PDF 3종(`학칙`/`교무행정`/`학생행정`)이 더�
 > 필드 2개를 추가했다(Phase 2, `8e51e57`). "완성 제공, 손대지 않는다"의 취지는 도메인
 > 레코드 자체를 흔들지 말라는 것이지 청크 파라미터를 상수로 코드에 남기라는 뜻이 아니라고
 > 판단해 예외로 처리했다 — "값 조정 시 application.yml과 함께 바꾼다"는 문서 취지 안의
-> 확장이다. B에게는 PR 열기 전에 사전 공유한다(`docs/세션-인수인계-2026-08-21.md` 참고).
-> 다른 필드를 더 추가하려면 먼저 알린다.
+> 확장이다. PR #1(`8e51e57`)로 B에게 이미 공유·머지됐다. 다른 필드를 더 추가하려면
+> 먼저 알린다.
 
 ## 코드 규칙
 
