@@ -160,17 +160,17 @@ class GoldenSetEvaluationTest {
         return value.replace("|", "\\|").replace("\n", " ");
     }
 
-    private record Evaluation(Case testCase, long durationMs, boolean sourcePassed,
-                              boolean keywordsPassed, boolean toolPassed, List<String> sources,
-                              String error) {
+    record Evaluation(Case testCase, long durationMs, boolean sourcePassed,
+                      boolean keywordsPassed, boolean toolPassed, List<String> sources,
+                      String error) {
         boolean passed() {
             return error.isEmpty() && sourcePassed && keywordsPassed && toolPassed;
         }
     }
 
-    private record Metrics(double passRate, double sourceHitRate, double toolSuccessRate,
-                           double toolErrorRate, double noEvidencePassRate, long p95Millis,
-                           long errorCount) {
+    record Metrics(double passRate, double sourceHitRate, double toolSuccessRate,
+                   double toolErrorRate, double noEvidencePassRate, long p95Millis,
+                   long errorCount) {
         static Metrics from(List<Evaluation> results) {
             List<Evaluation> sourceCases = results.stream()
                     .filter(r -> r.testCase().sourcePolicy() == SourcePolicy.REQUIRED).toList();
@@ -182,11 +182,13 @@ class GoldenSetEvaluationTest {
                     .sorted(Comparator.naturalOrder()).toList();
             int p95Index = Math.max(0, (int) Math.ceil(durations.size() * 0.95) - 1);
 
+            double toolSuccessRate = rate(
+                    toolCases.stream().filter(Evaluation::passed).count(), toolCases.size());
             return new Metrics(
                     rate(results.stream().filter(Evaluation::passed).count(), results.size()),
                     rate(sourceCases.stream().filter(Evaluation::sourcePassed).count(), sourceCases.size()),
-                    rate(toolCases.stream().filter(Evaluation::passed).count(), toolCases.size()),
-                    rate(toolCases.stream().filter(r -> !r.error().isEmpty()).count(), toolCases.size()),
+                    toolSuccessRate,
+                    1.0 - toolSuccessRate,
                     rate(noEvidenceCases.stream().filter(Evaluation::passed).count(), noEvidenceCases.size()),
                     durations.get(p95Index),
                     results.stream().filter(r -> !r.error().isEmpty()).count());

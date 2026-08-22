@@ -3,6 +3,7 @@ package com.skala.helpdesk.web;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -36,7 +37,9 @@ class ChatControllerTest {
         var validator = new LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
         mockMvc = MockMvcBuilders.standaloneSetup(new ChatController(helpDesk))
-                .setControllerAdvice(new ChatValidationExceptionHandler())
+                .setControllerAdvice(
+                        new ChatValidationExceptionHandler(),
+                        new HelpDeskExceptionHandler())
                 .setValidator(validator)
                 .build();
     }
@@ -80,6 +83,27 @@ class ChatControllerTest {
                 .andExpect(jsonPath("$.toolUsed").value(false));
 
         verify(helpDesk).ask("학생식당 메뉴 알려줘", "2021001", "no-source");
+    }
+
+    @Test
+    void 주_모델과_폴백이_모두_실패하면_안전한_문구와_traceId를_반환한다() throws Exception {
+        when(helpDesk.ask("졸업 요건 알려줘", "2021001", "fallback-failed"))
+                .thenThrow(new RuntimeException("내부 모델 오류와 민감한 상세 정보"));
+
+        mockMvc.perform(post("/api/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"question":"졸업 요건 알려줘","sessionId":"fallback-failed"}
+                                """))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.message")
+                        .value("일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."))
+                .andExpect(jsonPath("$.traceId")
+                        .value(matchesPattern("[0-9a-f-]{36}")))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("내부 모델 오류"))));
+
+        verify(helpDesk).ask("졸업 요건 알려줘", "2021001", "fallback-failed");
     }
 
     @Test
