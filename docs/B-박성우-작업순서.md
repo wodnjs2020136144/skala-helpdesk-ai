@@ -374,6 +374,9 @@ A 소유 설정을 임의로 고치지 않는다.
 - `AuditAdvisor`는 대화 ID를 직접 분해하지 않고 A가 공개한
   `HelpDeskService.studentIdFrom()`을 사용한다.
 - 최신 `main` 통합 후 `./gradlew clean build`를 실행해 전체 102개 테스트가 통과했다.
+- 실제 OpenAI·pgvector 환경에서 인증된 SSE 요청을 실행해 HTTP 200과 순차 `token`,
+  `graduation-requirements.md`·`한국기술교육대학교_학칙.pdf`가 담긴 `sources`,
+  `{"toolUsed":false}`의 `done` 이벤트를 확인했다.
 
 ### 권장 커밋
 
