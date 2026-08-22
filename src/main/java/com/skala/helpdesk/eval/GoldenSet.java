@@ -74,7 +74,7 @@ public record GoldenSet(List<Case> cases) {
         String noEvidence = "정확한 규정을 확인할 수 없습니다";
         return new GoldenSet(List.of(
                 required("AC-01", Category.ACADEMIC_REGULATION, "한 학기에 최대 몇 학점까지 신청할 수 있나요?",
-                        student, "학사운영에관한규칙.pdf", "23학점", "24학점", "3.5"),
+                        student, "학사운영에관한규칙.pdf", "21학점", "24학점", "3.5"),
                 required("AC-02", Category.ACADEMIC_REGULATION, "수강정정 기간은 언제까지인가요?",
                         student, "academic-regulations.md", "개강", "1주"),
                 required("AC-03", Category.ACADEMIC_REGULATION, "수강철회하면 성적표와 GPA에는 어떻게 반영되나요?",

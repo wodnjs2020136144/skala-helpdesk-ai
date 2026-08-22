@@ -45,4 +45,16 @@ class GoldenSetTest {
                 .allSatisfy(c -> assertThat(c.category()).isEqualTo(Category.NO_EVIDENCE));
         assertThat(goldenSet.cases()).filteredOn(GoldenSet.Case::expectedToolUsed).hasSize(3);
     }
+
+    @Test
+    void ac01은_1999학년도_이전_부칙이_아닌_현행_본칙을_기대한다() {
+        GoldenSet.Case ac01 = goldenSet.cases().stream()
+                .filter(c -> c.id().equals("AC-01"))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(ac01.expectedKeywords())
+                .containsExactly("21학점", "24학점", "3.5")
+                .doesNotContain("23학점");
+    }
 }

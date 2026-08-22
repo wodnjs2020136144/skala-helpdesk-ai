@@ -67,6 +67,23 @@ class HelpDeskServiceStreamTest {
     }
 
     @Test
+    void 근거_없음_응답은_전체_토큰을_누적해_무관한_sources를_제거한다() {
+        Document unrelated = new Document("무관한 학칙 본문",
+                Map.of("source", "한국기술교육대학교_학칙.pdf", "version", "2026-03-31"));
+        HelpDeskService service = serviceStreaming(List.of(unrelated),
+                "정확한 규정을 ", "확인할 수 없습니다.");
+
+        List<StreamEvent> events = service.streamEvents("학생식당 메뉴를 알려주세요", "2021001", "no-evidence")
+                .collectList().block();
+
+        assertThat(events).containsExactly(
+                new Token("정확한 규정을 "),
+                new Token("확인할 수 없습니다."),
+                new Sources(List.of()),
+                new Done(false));
+    }
+
+    @Test
     void 서로_다른_두_스트림_요청은_출처가_섞이지_않는다() {
         Document docA = new Document("본문A", Map.of("source", "a.md", "version", "v1"));
         Document docB = new Document("본문B", Map.of("source", "b.md", "version", "v1"));
