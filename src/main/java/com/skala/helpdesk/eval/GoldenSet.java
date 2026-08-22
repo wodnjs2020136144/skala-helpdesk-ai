@@ -1,32 +1,141 @@
 package com.skala.helpdesk.eval;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 
 /**
- * 담당: B(첫 번째 책임자) · 리뷰: A — Phase 8.
+ * 담당: B(첫 번째 책임자) · 리뷰: A — Phase 8 품질 기준선.
  *
- * <p>품질 기준선 — 정답이 정해진 질문 세트를 만들어 두고, 규정이 바뀌거나 프롬프트를
- * 수정할 때마다 답이 여전히 맞는지 확인한다. 골든셋 실행은 실제 모델을 호출하므로
- * 기본 테스트에서는 제외하고 별도 태스크로 돌린다(교안 p.225 패턴,
- * {@code 사내문서QnA_메인실습}의 {@code Lab2GoldenSetTest} 참고).
- *
- * <p>TODO(B, Phase 8): 아래를 채운다.
- * <ul>
- *   <li>질문 20종 — 학사운영규정·졸업요건·장학금 규정에서 고르게 뽑는다</li>
- *   <li>기대 근거 문서(source) — 어떤 규정 파일에서 답이 나와야 하는지</li>
- *   <li>실행기 — {@code HelpDeskService.ask(...)}를 호출해 sources에 기대 문서가
- *       포함되는지 검증한다</li>
- * </ul>
- *
- * <p>완료 기준: P95 응답시간·Tool 성공률/오류율(비기능 요구, p.310)을 함께 기록한다.
+ * <p>모델 답변 전체 문장을 고정하지 않고 핵심 사실, 기대 출처, Tool 사용 여부를 검증한다.
+ * 프롬프트·모델·검색 설정을 바꿀 때 실제 모델 평가를 다시 실행해 회귀를 찾는다.
  */
 public record GoldenSet(List<Case> cases) {
 
-    public record Case(String question, String expectedSource) {
+    public GoldenSet {
+        cases = List.copyOf(Objects.requireNonNull(cases, "cases"));
+        if (cases.size() != 20) {
+            throw new IllegalArgumentException("Golden Set은 정확히 20개여야 합니다.");
+        }
+        if (new HashSet<>(cases.stream().map(Case::id).toList()).size() != cases.size()) {
+            throw new IllegalArgumentException("Golden Set id는 중복될 수 없습니다.");
+        }
     }
 
-    // TODO(B, Phase 8): 아래는 자리표시용 빈 셋이다 — 20종을 채운다.
-    public static GoldenSet placeholder() {
-        return new GoldenSet(List.of());
+    public enum Category {
+        ACADEMIC_REGULATION, GRADUATION, SCHOLARSHIP, TOOL, NO_EVIDENCE
+    }
+
+    /** 출처가 필수인지, 없어야 하는지, Tool 전용 질문이라 검사하지 않을지를 나타낸다. */
+    public enum SourcePolicy {
+        REQUIRED, EMPTY, IGNORE
+    }
+
+    public record Case(
+            String id,
+            Category category,
+            String question,
+            String studentId,
+            SourcePolicy sourcePolicy,
+            String expectedSource,
+            List<String> expectedKeywords,
+            boolean expectedToolUsed) {
+
+        public Case {
+            id = requireText(id, "id");
+            category = Objects.requireNonNull(category, "category");
+            question = requireText(question, "question");
+            studentId = requireText(studentId, "studentId");
+            sourcePolicy = Objects.requireNonNull(sourcePolicy, "sourcePolicy");
+            expectedSource = expectedSource == null ? "" : expectedSource.strip();
+            expectedKeywords = List.copyOf(Objects.requireNonNull(expectedKeywords, "expectedKeywords"));
+            if (expectedKeywords.isEmpty() || expectedKeywords.stream().anyMatch(String::isBlank)) {
+                throw new IllegalArgumentException("expectedKeywords에는 한 개 이상의 값이 필요합니다.");
+            }
+            if (sourcePolicy == SourcePolicy.REQUIRED && expectedSource.isBlank()) {
+                throw new IllegalArgumentException("REQUIRED 문항에는 expectedSource가 필요합니다.");
+            }
+            if (sourcePolicy != SourcePolicy.REQUIRED && !expectedSource.isBlank()) {
+                throw new IllegalArgumentException("REQUIRED가 아닌 문항의 expectedSource는 비워야 합니다.");
+            }
+        }
+
+        private static String requireText(String value, String name) {
+            if (value == null || value.isBlank()) {
+                throw new IllegalArgumentException(name + "은(는) 비어 있을 수 없습니다.");
+            }
+            return value.strip();
+        }
+    }
+
+    /** 학사 안내 챗봇의 Phase 8 기준선 20문항. */
+    public static GoldenSet academicHelpDesk() {
+        String student = "2021001";
+        String noEvidence = "정확한 규정을 확인할 수 없습니다";
+        return new GoldenSet(List.of(
+                required("AC-01", Category.ACADEMIC_REGULATION, "한 학기에 최대 몇 학점까지 신청할 수 있나요?",
+                        student, "academic-regulations.md", "21학점", "24학점", "4.0"),
+                required("AC-02", Category.ACADEMIC_REGULATION, "수강정정 기간은 언제까지인가요?",
+                        student, "academic-regulations.md", "개강", "1주"),
+                required("AC-03", Category.ACADEMIC_REGULATION, "수강철회하면 성적표와 GPA에는 어떻게 반영되나요?",
+                        student, "academic-regulations.md", "W", "포함되지"),
+                required("AC-04", Category.ACADEMIC_REGULATION, "한 학기에 수강철회할 수 있는 과목 수를 알려주세요.",
+                        student, "academic-regulations.md", "2과목"),
+                required("AC-05", Category.ACADEMIC_REGULATION, "성적 이의신청 기한과 결과 통보 기한은 각각 얼마인가요?",
+                        student, "academic-regulations.md", "1주", "5일"),
+
+                required("GR-01", Category.GRADUATION, "졸업하려면 총 몇 학점을 이수해야 하나요?",
+                        student, "graduation-requirements.md", "130학점"),
+                required("GR-02", Category.GRADUATION, "졸업에 필요한 전공필수와 전공선택 학점 기준을 알려주세요.",
+                        student, "graduation-requirements.md", "45학점", "15학점", "60학점"),
+                required("GR-03", Category.GRADUATION, "졸업 어학 요건의 TOEIC 기준은 몇 점인가요?",
+                        student, "graduation-requirements.md", "700점"),
+                required("GR-04", Category.GRADUATION, "졸업논문이나 캡스톤 프로젝트는 몇 학점인가요?",
+                        student, "graduation-requirements.md", "3학점"),
+                required("GR-05", Category.GRADUATION, "졸업 사정을 받기 위한 전체 조건을 알려주세요.",
+                        student, "graduation-requirements.md", "130학점", "2.0", "어학", "졸업논문"),
+
+                required("SC-01", Category.SCHOLARSHIP, "직전 학기 GPA가 4.0이면 성적 장학금은 얼마인가요?",
+                        student, "scholarship-policy.md", "전액"),
+                required("SC-02", Category.SCHOLARSHIP, "직전 학기 GPA가 3.8이면 성적 장학금 비율은 얼마인가요?",
+                        student, "scholarship-policy.md", "50%"),
+                required("SC-03", Category.SCHOLARSHIP, "직전 학기에 11학점만 이수해도 성적 장학금을 받을 수 있나요?",
+                        student, "scholarship-policy.md", "12학점", "제외"),
+                required("SC-04", Category.SCHOLARSHIP, "성적 장학금은 별도로 신청해야 하나요?",
+                        student, "scholarship-policy.md", "자동", "별도 신청"),
+
+                tool("TL-01", "제가 현재 듣는 과목과 누적 학점을 알려주세요.", student,
+                        "100학점", "CS201", "CS301"),
+                requiredTool("TL-02", "제 현재 상태로 졸업 가능한지 부족한 조건까지 확인해주세요.", student,
+                        "graduation-requirements.md", "100학점", "130학점", "캡스톤"),
+                tool("TL-03", "알고리즘 과목을 개인 사정으로 수강철회 신청해주세요.", student,
+                        "신청번호", "PENDING", "승인"),
+
+                noEvidence("NE-01", "오늘 학생식당 점심 메뉴가 무엇인가요?", student, noEvidence),
+                noEvidence("NE-02", "기숙사 통금 시간이 몇 시인가요?", student, noEvidence),
+                noEvidence("NE-03", "교내 주차 정기권 요금은 얼마인가요?", student, noEvidence)
+        ));
+    }
+
+    private static Case required(String id, Category category, String question, String studentId,
+                                 String source, String... keywords) {
+        return new Case(id, category, question, studentId, SourcePolicy.REQUIRED, source,
+                List.of(keywords), false);
+    }
+
+    private static Case requiredTool(String id, String question, String studentId, String source,
+                                     String... keywords) {
+        return new Case(id, Category.TOOL, question, studentId, SourcePolicy.REQUIRED, source,
+                List.of(keywords), true);
+    }
+
+    private static Case tool(String id, String question, String studentId, String... keywords) {
+        return new Case(id, Category.TOOL, question, studentId, SourcePolicy.IGNORE, "",
+                List.of(keywords), true);
+    }
+
+    private static Case noEvidence(String id, String question, String studentId, String keyword) {
+        return new Case(id, Category.NO_EVIDENCE, question, studentId, SourcePolicy.EMPTY, "",
+                List.of(keyword), false);
     }
 }
