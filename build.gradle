@@ -42,6 +42,7 @@ dependencies {
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'io.projectreactor:reactor-test'
     // Boot 4 부터 @WebMvcTest(org.springframework.boot.webmvc.test.autoconfigure) 는
     // spring-boot-starter-test 가 아니라 이 신규 스타터가 있어야 딸려온다.
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'

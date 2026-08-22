@@ -23,6 +23,7 @@ import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 import com.skala.helpdesk.chat.AnswerDto;
 import com.skala.helpdesk.chat.AnswerDto.Source;
 import com.skala.helpdesk.chat.HelpDeskService;
+import com.skala.helpdesk.config.ChatProperties;
 
 @ExtendWith(MockitoExtension.class)
 class ChatControllerTest {
@@ -36,7 +37,8 @@ class ChatControllerTest {
     void setUp() {
         var validator = new LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
-        mockMvc = MockMvcBuilders.standaloneSetup(new ChatController(helpDesk))
+        mockMvc = MockMvcBuilders.standaloneSetup(
+                        new ChatController(helpDesk, new ChatProperties(java.time.Duration.ofSeconds(60))))
                 .setControllerAdvice(
                         new ChatValidationExceptionHandler(),
                         new HelpDeskExceptionHandler())

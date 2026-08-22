@@ -78,6 +78,17 @@ Content-Type: application/json
 GET {{host}}/api/chat/history?sessionId=s1
 Authorization: Basic {{studentUser}} {{studentPassword}}
 
+### SSE 스트리밍 — token* → sources → done (오류 시 error → done)
+POST {{host}}/api/chat/stream
+Authorization: Basic {{studentUser}} {{studentPassword}}
+Content-Type: application/json
+Accept: text/event-stream
+
+{
+  "question": "졸업 학점 요건이 어떻게 돼요?",
+  "sessionId": "sse-1"
+}
+
 ### 관리자 — 인제스트 청크 검사(Phase 2 심화)
 GET {{host}}/api/admin/chunks?q=졸업학점&topK=5
 Authorization: Basic {{adminUser}} {{adminPassword}}

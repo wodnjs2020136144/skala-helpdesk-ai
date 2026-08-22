@@ -27,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.skala.helpdesk.chat.AnswerDto;
 import com.skala.helpdesk.chat.HelpDeskService;
+import com.skala.helpdesk.config.ChatProperties;
 import com.skala.helpdesk.config.HelpDeskProperties;
 import com.skala.helpdesk.repository.WithdrawalRequestRepository;
 
@@ -53,6 +54,9 @@ class SecurityAuthorizationTest {
 
     @MockitoBean
     private HelpDeskProperties props;
+
+    @MockitoBean
+    private ChatProperties chatProperties;
 
     @Test
     void 인증하지_않은_사용자는_채팅_API를_호출할_수_없다() throws Exception {
