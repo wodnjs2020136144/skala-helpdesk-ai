@@ -93,6 +93,7 @@ class ChatControllerTest {
                 .thenThrow(new RuntimeException("내부 모델 오류와 민감한 상세 정보"));
 
         mockMvc.perform(post("/api/chat")
+                        .principal(() -> "2021001")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"question":"졸업 요건 알려줘","sessionId":"fallback-failed"}
