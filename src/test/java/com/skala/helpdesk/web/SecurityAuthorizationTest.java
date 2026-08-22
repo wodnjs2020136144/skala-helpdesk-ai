@@ -1,11 +1,13 @@
 package com.skala.helpdesk.web;
 
+import static org.hamcrest.Matchers.not;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
@@ -57,7 +59,9 @@ class SecurityAuthorizationTest {
         mockMvc.perform(post("/api/chat")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validChatRequest()))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                // 보안 필터에서 거절된 요청도 서버가 생성한 traceId로 추적할 수 있어야 한다.
+                .andExpect(header().exists(TraceIdFilter.RESPONSE_HEADER));
 
         verifyNoInteractions(helpDesk);
     }
@@ -70,9 +74,11 @@ class SecurityAuthorizationTest {
         mockMvc.perform(post("/api/chat")
                         .with(httpBasic("2021001", "student"))
                         .param("studentId", "2021002")
+                        .header(TraceIdFilter.RESPONSE_HEADER, "forged-trace")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validChatRequest()))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(header().string(TraceIdFilter.RESPONSE_HEADER, not("forged-trace")));
 
         verify(helpDesk).ask("내 학점 알려줘", "2021001", "s1");
     }
