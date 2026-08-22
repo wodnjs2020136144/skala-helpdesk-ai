@@ -11,6 +11,8 @@ import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
+import org.springframework.ai.chat.client.advisor.api.StreamAdvisor;
+import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.DefaultUsage;
@@ -21,6 +23,7 @@ import org.springframework.ai.chat.prompt.Prompt;
 import com.skala.helpdesk.config.AiOpsProperties;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import reactor.core.publisher.Flux;
 
 /**
  * 담당: A. Phase 8 — 토큰·지연 계측, AI 오류 카운터, 비용 상한 경고를 실제 API 호출
@@ -85,6 +88,68 @@ class TokenMeterAdvisorTest {
         assertThat(registry.get("ai.budget.exceeded").counter().count()).isEqualTo(1.0);
     }
 
+    // --- 스트리밍(SSE) 경로 ---
+    // TokenMeterAdvisor가 CallAdvisor만 구현하던 시절에는 스트림 체인을 전혀 타지 않아
+    // SSE 요청은 계측이 통째로 비어 있었다(Phase 6 검토 중 발견). StreamAdvisor 추가 후
+    // 회귀를 막는 테스트다.
+
+    @Test
+    void 스트림이_완료되면_마지막_청크의_usage만_한_번_집계된다() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        TokenMeterAdvisor advisor = new TokenMeterAdvisor(registry, budgetOf(Long.MAX_VALUE));
+
+        Flux<ChatClientResponse> chunks = Flux.just(
+                chunkWithoutUsage("모델은 "),
+                chunkWithoutUsage("스트리밍 중입니다"),
+                responseWithUsage("gpt-4o-mini", 100, 40));
+
+        advisor.adviseStream(requestOf("졸업 학점 요건이 어떻게 돼요?"), chainReturningStream(chunks))
+                .blockLast();
+
+        assertThat(registry.get("ai.tokens").tag("type", "prompt").tag("model", "gpt-4o-mini")
+                .counter().count()).isEqualTo(100.0);
+        assertThat(registry.get("ai.tokens").tag("type", "completion").tag("model", "gpt-4o-mini")
+                .counter().count()).isEqualTo(40.0);
+        assertThat(registry.get("ai.latency").tag("outcome", "success").timer().count()).isEqualTo(1);
+    }
+
+    @Test
+    void 스트림_에러_시_ai_errors가_오르고_예외가_그대로_전파된다() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        TokenMeterAdvisor advisor = new TokenMeterAdvisor(registry, budgetOf(Long.MAX_VALUE));
+
+        Flux<ChatClientResponse> failing = Flux.error(new IllegalStateException("스트림 장애"));
+
+        assertThatThrownBy(() -> advisor.adviseStream(requestOf("질문"), chainReturningStream(failing))
+                .blockLast())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("스트림 장애");
+
+        assertThat(registry.get("ai.errors").tag("exception", "IllegalStateException")
+                .counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("ai.latency").tag("outcome", "error").timer().count()).isEqualTo(1);
+    }
+
+    @Test
+    void 서로_다른_두_스트림_요청은_토큰_집계가_섞이지_않는다() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        TokenMeterAdvisor advisor = new TokenMeterAdvisor(registry, budgetOf(Long.MAX_VALUE));
+
+        Flux<ChatClientResponse> streamA = Flux.just(responseWithUsage("model-a", 100, 40));
+        Flux<ChatClientResponse> streamB = Flux.just(responseWithUsage("model-b", 60, 30));
+
+        Flux.merge(
+                advisor.adviseStream(requestOf("질문 A"), chainReturningStream(streamA)),
+                advisor.adviseStream(requestOf("질문 B"), chainReturningStream(streamB)))
+                .blockLast();
+
+        assertThat(registry.get("ai.tokens").tag("type", "prompt").tag("model", "model-a")
+                .counter().count()).isEqualTo(100.0);
+        assertThat(registry.get("ai.tokens").tag("type", "prompt").tag("model", "model-b")
+                .counter().count()).isEqualTo(60.0);
+        assertThat(registry.get("ai.latency").tag("outcome", "success").timer().count()).isEqualTo(2);
+    }
+
     // --- 테스트 헬퍼 ---
 
     private static AiOpsProperties budgetOf(long maxTotalTokens) {
@@ -110,6 +175,12 @@ class TokenMeterAdvisorTest {
     private static ChatClientResponse rejectionResponse() {
         ChatResponse chatResponse = new ChatResponse(
                 List.of(new Generation(new AssistantMessage("죄송하지만 해당 요청은 처리할 수 없습니다."))));
+        return ChatClientResponse.builder().chatResponse(chatResponse).context(Map.of()).build();
+    }
+
+    /** 스트리밍 중간 청크 — OpenAI는 usage를 마지막 청크에만 채운다(EmptyUsage 기본값). */
+    private static ChatClientResponse chunkWithoutUsage(String token) {
+        ChatResponse chatResponse = new ChatResponse(List.of(new Generation(new AssistantMessage(token))));
         return ChatClientResponse.builder().chatResponse(chatResponse).context(Map.of()).build();
     }
 
@@ -146,6 +217,25 @@ class TokenMeterAdvisorTest {
 
             @Override
             public CallAdvisorChain copy(CallAdvisor after) {
+                return this;
+            }
+        };
+    }
+
+    private static StreamAdvisorChain chainReturningStream(Flux<ChatClientResponse> responses) {
+        return new StreamAdvisorChain() {
+            @Override
+            public Flux<ChatClientResponse> nextStream(ChatClientRequest request) {
+                return responses;
+            }
+
+            @Override
+            public List<StreamAdvisor> getStreamAdvisors() {
+                return List.of();
+            }
+
+            @Override
+            public StreamAdvisorChain copy(StreamAdvisor after) {
                 return this;
             }
         };
