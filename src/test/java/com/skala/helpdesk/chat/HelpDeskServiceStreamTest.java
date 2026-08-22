@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
@@ -131,6 +132,35 @@ class HelpDeskServiceStreamTest {
     }
 
     /**
+     * PR #14 교차 리뷰(성우님) 지적 — 처음에는 {@code doFinally} 하나로 두 종료 신호를
+     * 잡았는데, {@code doFinally}는 종료 신호를 <b>다운스트림에 전달한 뒤</b> 실행된다.
+     * 그래서 {@code ChatController}의 {@code onErrorResume}이 복구가 끝나기 전에
+     * {@code error → done}을 내보낼 수 있고, 클라이언트가 곧바로 같은 세션으로 다시 물으면
+     * 아직 지워지지 않은 반쪽 질문을 본다. 같은 경합이 이 테스트 클래스의 간헐 실패로도
+     * 드러났다.
+     *
+     * <p>"결국 비워진다"가 아니라 <b>오류가 아래로 내려가기 전에 이미 비워져 있다</b>를
+     * 고정한다. 아래 {@code doOnError}는 서비스 안쪽 것보다 뒤에 실행되므로, 여기서 본
+     * 크기가 0이면 순서가 지켜진 것이다.
+     */
+    @Test
+    void 오류가_다운스트림에_도달하기_전에_메모리가_먼저_복구된다() {
+        List<Message> saved = new ArrayList<>();
+        List<Integer> sizeSeenByDownstream = new ArrayList<>();
+        AtomicInteger restoreCount = new AtomicInteger();
+        HelpDeskService service = serviceStreaming(saved, restoreCount, List.of(), new FailingStreamModel());
+
+        StepVerifier.create(service.streamEvents("졸업 학점 요건이 어떻게 돼요?", "2021001", "s1")
+                        .doOnError(error -> sizeSeenByDownstream.add(saved.size())))
+                .expectError(RuntimeException.class)
+                .verify();
+
+        assertThat(sizeSeenByDownstream).containsExactly(0);
+        // 오류 경로에서 복구가 두 번 불리지 않는다(같은 리뷰의 확인 요청).
+        assertThat(restoreCount).hasValue(1);
+    }
+
+    /**
      * 타임아웃은 {@code ChatController}의 {@code .timeout()}에 걸려 있어 서비스에는 오류가
      * 아니라 <b>취소</b>로 도착한다(클라이언트 연결 끊김도 마찬가지). {@code doOnError}만
      * 붙였다면 이 테스트가 실패한다 — 실측에서 확인한 세 실패 경로 중 둘이 여기에 속한다.
@@ -188,8 +218,14 @@ class HelpDeskServiceStreamTest {
      */
     private static HelpDeskService serviceStreaming(List<Message> saved, List<Document> documents,
                                                     ChatModel model) {
+        return serviceStreaming(saved, new AtomicInteger(), documents, model);
+    }
+
+    /** {@code restoreCount}는 복구(= 대화 단위 삭제) 횟수를 센다 — 중복 복구 확인용. */
+    private static HelpDeskService serviceStreaming(List<Message> saved, AtomicInteger restoreCount,
+                                                    List<Document> documents, ChatModel model) {
         ChatMemory chatMemory = MessageWindowChatMemory.builder()
-                .chatMemoryRepository(recordingRepository(saved))
+                .chatMemoryRepository(recordingRepository(saved, restoreCount))
                 .maxMessages(20)
                 .build();
         ChatClient chat = ChatClient.builder(model)
@@ -200,7 +236,7 @@ class HelpDeskServiceStreamTest {
         return new HelpDeskService(chat, chatMemory, null, null);
     }
 
-    private static ChatMemoryRepository recordingRepository(List<Message> saved) {
+    private static ChatMemoryRepository recordingRepository(List<Message> saved, AtomicInteger restoreCount) {
         return new ChatMemoryRepository() {
             @Override
             public List<String> findConversationIds() {
@@ -220,6 +256,7 @@ class HelpDeskServiceStreamTest {
 
             @Override
             public void deleteByConversationId(String conversationId) {
+                restoreCount.incrementAndGet();
                 saved.clear();
             }
         };
