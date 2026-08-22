@@ -9,12 +9,13 @@ SKALA "SpringAI 이해 및 활용" **Day 3 종합 실습**(교안 p.307–322)�
 도메인으로 구현하는 **2인 1조 실습 리포**다. 황재원(A — AI·RAG·플랫폼) /
 박성우(B — 업무 API·Tool·보안).
 
-지금은 **스캐폴드**다. 부팅·컴파일은 되지만 Phase별 학습 지점이 비어 있고,
-`TODO(A, Phase N)` / `TODO(B, Phase N)` 마커가 붙은 곳이 작업 지점이다. TODO는 예외를
-던지지 않고 플레이스홀더 문자열·빈 목록을 반환한다 — **RAG 답변에 근거가 없고 Tool이
-"TODO(B, Phase 4): ..." 문구를 반환하는 것은 버그가 아니라 정상 출발선이다.**
+출발점은 **스캐폴드**였다 — Phase별 학습 지점이 `TODO(A, Phase N)` / `TODO(B, Phase N)`
+마커로 비어 있었고, 그 마커가 곧 작업 지점이었다. **Phase 1~8은 모두 구현이 끝났고 마커는
+하나도 남아 있지 않다**(`grep -rn "TODO(" src/main/java`로 확인된다). 이제 새 작업은
+마커가 아니라 아래 "검증" 절의 세 문서에서 `☐`로 남은 항목에서 나온다.
 
-작업 지점을 찾을 때: `grep -rn "TODO(" src/main/java`
+각 소스 파일 Javadoc에는 그 Phase의 참조 코드 경로·완료 기준과 함께 **왜 그렇게
+짜였는지, 무엇을 실측으로 확인했는지**가 적혀 있다. 그 파일을 고치기 전에 먼저 읽는다.
 
 ## 명령
 
@@ -22,9 +23,14 @@ SKALA "SpringAI 이해 및 활용" **Day 3 종합 실습**(교안 p.307–322)�
 docker compose up -d          # pgvector — RAG 저장소이자 JDBC 대화 메모리 DB (같은 컨테이너)
 export OPENAI_API_KEY="sk-..."   # 또는 cp .env.example .env 후 IDE에 주입
 ./gradlew bootRun             # VS Code는 F5
-./gradlew build               # 컴파일 + 테스트
-./gradlew test --tests '*GoldenSet*'   # 단일 테스트 (src/test는 아직 없다 — Phase 8에서 B가 만든다)
+./gradlew build               # 컴파일 + 테스트 (모델을 호출하지 않는다)
+./gradlew test --tests '*GoldenSet*'   # 단일 테스트
+./gradlew goldenSetTest       # 실제 OpenAI·pgvector로 20문항 평가 — 키 필요, 일반 빌드와 분리
 ```
+
+인증이 걸려 있다(Phase 7) — `curl`에 `-u 2021001:student`(학생) 또는 `-u admin:admin`
+(관리자)을 붙이지 않으면 401이다. `/api/admin/chunks`에 한글 질의를 보낼 때는
+`curl -G --data-urlencode "q=졸업"`을 쓴다. 그냥 이어 붙이면 400이 난다.
 
 - Swagger UI — http://localhost:8080/swagger-ui.html
 - Health — http://localhost:8080/actuator/health
@@ -71,6 +77,19 @@ md 3종이 전부 `academic` 하나로 묶여 있고, 여기에 PDF 3종(`학칙
 만든다 — **`enrich`의 메타데이터 키를 바꾸면 출처 표기가 조용히 깨진다.**
 재인제스트 시 `vectorStore.delete("source == '...'")`를 먼저 하지 않으면 같은 청크가
 누적돼 검색 결과가 도배된다(p.314 함정).
+
+**운영 검색과 관리자 진단은 보는 범위가 다르다.** `AiConfig`의 `QuestionAnswerAdvisor`에만
+필터가 걸려 있고(`section == 'main' && injected == 'no'`), `AdminController`는 필터 없이
+`vectorStore.similaritySearch`를 직접 부른다. 그래서 부칙과 오염 청크는 **저장은 되지만
+답변 근거로는 쓰이지 않고**, 진단에서는 그대로 보인다 — 걸린 청크를 볼 수 없으면 오탐인지
+진짜 공격인지 판단할 수 없기 때문이다. 두 메타데이터 모두 `IngestService`가 붙인다:
+
+- `section` — 본칙/부칙. 부칙(개정 이력의 시행일·경과조치)이 섞이면 폐지된 옛 기준이 현행
+  규정처럼 답변에 들어간다(`splitBySection` Javadoc의 26학점 실측).
+- `injected` — 모델을 향한 지시가 심긴 문서 표시(레드팀 7번). **청크로 자르기 전, 문서
+  전체 텍스트로 판정한다** — 지시문이 청크 경계에 걸려 반으로 갈리면 청크 하나만 보는
+  검사로는 못 잡는다(`injectionRuleIn` Javadoc의 실측). 값이 없는 청크는 필터에 걸려
+  통째로 빠지므로 **모든 청크에 반드시 넣는다**.
 
 인제스트 결과는 성공 로그가 아니라 `GET /api/admin/chunks?q=...`로 확인한다.
 
@@ -139,8 +158,8 @@ JDK 21 / Spring Boot 4.1.0 / `spring-ai-bom:2.0.0` / `pgvector/pgvector:pg17`.
 - `spring-boot-starter-webmvc-test` — Boot 4에서 `@WebMvcTest`는 이 스타터가 있어야 딸려온다.
 - pgvector `dimensions: 1536`은 `text-embedding-3-small`과 반드시 일치해야 한다.
 
-`bootRun`으로의 실행 검증은 아직 미확인 상태다 — 실행 중 좌표 문제가 나오면
-`build.gradle` 주석에 교정 내용을 남긴다.
+`bootRun`·Health·Swagger UI 실행 검증은 실제 pgvector와 API 키로 끝났다(2026-08-21).
+이후 좌표 문제가 나오면 `build.gradle` 주석에 교정 내용을 남긴다.
 
 ## 검증
 
@@ -148,7 +167,11 @@ JDK 21 / Spring Boot 4.1.0 / `spring-ai-bom:2.0.0` / `pgvector/pgvector:pg17`.
   게이트 → 소유자 검증 차단 → SafeGuard → 폴백). `http/samples.http`에 요청이 1:1로 있다.
 - `docs/레드팀-체크리스트.md` — 레드팀 10종. **뚫린 경로는 프롬프트가 아니라 코드로 막고
   재검증한다.**
+- `docs/골든셋-평가.md` — Phase 8 Golden Set 20문항·합격 기준·실측 이력.
 - 계측 — `GET /actuator/metrics/ai.tokens`, `ai.latency`.
+
+**측정하지 않은 것을 통과로 적지 않는다.** 위 문서의 `☑`는 전부 실행 결과가 붙어 있고,
+아직 재현하지 않은 항목은 `☐`로 남겨 이유를 적는다. 이게 이 리포의 기록 원칙이다.
 
 ## 참조 구현
 
