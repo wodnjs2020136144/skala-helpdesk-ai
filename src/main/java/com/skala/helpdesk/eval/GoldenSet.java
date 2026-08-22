@@ -73,7 +73,8 @@ public record GoldenSet(List<Case> cases) {
         String student = "2021001";
         String noEvidence = "정확한 규정을 확인할 수 없습니다";
         return new GoldenSet(List.of(
-                required("AC-01", Category.ACADEMIC_REGULATION, "한 학기에 최대 몇 학점까지 신청할 수 있나요?",
+                required("AC-01", Category.ACADEMIC_REGULATION,
+                        "공학사과정 학생의 기본 수강신청 상한과 직전 학기 성적 우수자의 추가 신청 조건 및 최대 학점을 알려주세요.",
                         student, "학사운영에관한규칙.pdf", "21학점", "24학점", "3.5"),
                 required("AC-02", Category.ACADEMIC_REGULATION, "수강정정 기간은 언제까지인가요?",
                         student, "academic-regulations.md", "개강", "1주"),
