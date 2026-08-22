@@ -21,7 +21,9 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import com.skala.helpdesk.advisor.AuditAdvisor;
 import com.skala.helpdesk.advisor.SafeGuardAdvisor;
 import com.skala.helpdesk.advisor.TokenMeterAdvisor;
+import com.skala.helpdesk.rag.GuardedVectorStore;
 import com.skala.helpdesk.rag.IngestService;
+import com.skala.helpdesk.rag.RetrievalGuard;
 import com.skala.helpdesk.tools.AcademicTools;
 import com.skala.helpdesk.tools.BoundedToolCallingManager;
 import com.skala.helpdesk.tools.RequestTools;
@@ -55,7 +57,12 @@ public class AiConfig {
                                      TokenMeterAdvisor tokenMeter,
                                      SafeGuardAdvisor safeGuard,
                                      AcademicTools academicTools,
-                                     RequestTools requestTools) throws IOException {
+                                     RequestTools requestTools,
+                                     RetrievalGuard retrievalGuard) throws IOException {
+        // 운영 검색만 오염 문서를 걸러 본다 — 빈으로 등록하지 않고 여기서만 감싼다.
+        // 등록하면 IngestService·AdminController가 주입받는 VectorStore와 모호해지고,
+        // 관리자 진단에서 오염 청크를 눈으로 확인할 수 없게 된다(GuardedVectorStore Javadoc).
+        VectorStore guardedStore = new GuardedVectorStore(vectorStore, retrievalGuard);
         return builder
                 .defaultSystem(systemPrompt())
                 .defaultAdvisors(
@@ -63,17 +70,21 @@ public class AiConfig {
                         tokenMeter,
                         safeGuard,
                         MessageChatMemoryAdvisor.builder(chatMemory).order(200).build(),
-                        QuestionAnswerAdvisor.builder(vectorStore)
+                        QuestionAnswerAdvisor.builder(guardedStore)
                                 .searchRequest(SearchRequest.builder()
                                         .topK(props.rag().topK())
                                         .similarityThreshold(props.rag().threshold())
-                                        // 운영 검색은 현행 본칙만 본다 — 부칙(개정 이력의
-                                        // 시행일·경과조치)이 섞이면 폐지된 옛 기준이 현행
-                                        // 규정처럼 답변에 들어간다(IngestService.splitBySection
-                                        // Javadoc의 26학점 실측 사례). 관리자 진단
-                                        // (AdminController)은 필터 없이 조회하므로 부칙도 보인다.
-                                        .filterExpression("%s == '%s'"
-                                                .formatted(IngestService.SECTION, IngestService.MAIN))
+                                        // 운영 검색은 현행 본칙만, 그리고 오염되지 않은 문서만
+                                        // 본다. ① 부칙(개정 이력의 시행일·경과조치)이 섞이면
+                                        // 폐지된 옛 기준이 현행 규정처럼 답변에 들어간다
+                                        // (IngestService.splitBySection Javadoc의 26학점 실측).
+                                        // ② 모델을 향한 지시가 심긴 문서는 인제스트 때 표시해 두고
+                                        // 여기서 뺀다(레드팀 7번, IngestService.injectionRuleIn).
+                                        // 관리자 진단(AdminController)은 필터 없이 조회하므로
+                                        // 부칙도 오염 청크도 그대로 보인다.
+                                        .filterExpression("%s == '%s' && %s == '%s'".formatted(
+                                                IngestService.SECTION, IngestService.MAIN,
+                                                IngestService.INJECTED, IngestService.NOT_INJECTED))
                                         .build())
                                 .order(300)
                                 .build())
