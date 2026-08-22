@@ -148,7 +148,7 @@ A 소유 설정을 임의로 고치지 않는다.
 
 - [x] 검증 시나리오 ②·④·⑤의 Tool·권한 부분을 단위·스키마 테스트로 통과한다.
 - [x] 응답에서 `TODO(B, Phase 4)` 문자열이 사라진다.
-- [ ] A가 Tool 설명과 반환 길이를 리뷰한다.
+- [x] A가 Tool 설명과 반환 길이를 리뷰한다.
 
 ### 2026-08-21 실행 결과
 
@@ -242,13 +242,13 @@ A 소유 설정을 임의로 고치지 않는다.
 
 ### 작업
 
-- [ ] `AnswerDto(String answer, List<Source> sources, boolean toolUsed)`를 유지한다.
+- [x] `AnswerDto(String answer, List<Source> sources, boolean toolUsed)`를 유지한다.
 - [ ] `Source(String document, String version)` 구조를 A와 함께 확인한다.
 - [ ] `ChatRequest.question`, `sessionId`에 입력 검증을 적용한다.
-- [ ] Controller에서 `ChatClient`를 직접 호출하지 않는다.
+- [x] Controller에서 `ChatClient`를 직접 호출하지 않는다.
 - [ ] 규정 질문이 답변과 실제 출처를 반환하는지 확인한다.
 - [ ] 근거가 없을 때 안전한 답변과 빈 출처 목록을 반환하는지 확인한다.
-- [ ] Tool 질문에서 `toolUsed`가 실제 호출 결과와 일치하는지 확인한다.
+- [x] Tool 질문에서 `toolUsed`가 실제 호출 결과와 일치하는지 확인한다.
 - [ ] Swagger에 정상·근거 없음 응답 예시를 추가한다.
 
 ### 완료 기준
@@ -275,10 +275,10 @@ A 소유 설정을 임의로 고치지 않는다.
 
 ### A 소유 코드 리뷰 항목
 
-- [ ] `conversationId`가 `HelpDeskService` 한 곳에서만 만들어진다.
-- [ ] 형식이 `skala:{학번}:{세션}`이다.
-- [ ] 최대 메시지 수가 `application.yml` 설정으로 관리된다.
-- [ ] JDBC 메모리를 사용한다.
+- [x] `conversationId`가 `HelpDeskService` 한 곳에서만 만들어진다.
+- [x] 형식이 `skala:{학번}:{세션}`이다.
+- [x] 최대 메시지 수가 `application.yml` 설정으로 관리된다.
+- [x] JDBC 메모리를 사용한다.
 
 ### 테스트
 
@@ -372,9 +372,9 @@ A 소유 설정을 임의로 고치지 않는다.
 
 ### 7-2. 승인 게이트
 
-- [ ] 수강철회 접수는 Tool에서 `PENDING`까지만 수행한다.
-- [ ] 승인은 `AdminController`에서만 실행된다.
-- [ ] 승인 메서드가 AI Tool 목록에 없는지 다시 확인한다.
+- [x] 수강철회 접수는 Tool에서 `PENDING`까지만 수행한다.
+- [x] 승인은 `AdminController`에서만 실행된다.
+- [x] 승인 메서드가 AI Tool 목록에 없는지 다시 확인한다.
 - [ ] 학생이 관리자라고 주장해도 승인되지 않는지 테스트한다.
 
 ### 7-3. 감사 로그
@@ -389,9 +389,9 @@ A 소유 설정을 임의로 고치지 않는다.
 
 ### 7-4. SafeGuard 교차 리뷰
 
-- [ ] A의 SafeGuard가 Memory보다 앞(order 100)에 있는지 확인한다.
-- [ ] 차단된 입력이 대화 이력에 남지 않는지 확인한다.
-- [ ] 긴 입력과 개인정보 패턴이 차단되는지 확인한다.
+- [x] A의 SafeGuard가 Memory보다 앞(order 100)에 있는지 확인한다.
+- [x] 차단된 입력이 대화 이력에 남지 않는지 확인한다.
+- [x] 긴 입력과 개인정보 패턴이 차단되는지 확인한다.
 
 ### 7-5. 레드팀 10종
 
