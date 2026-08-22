@@ -29,6 +29,7 @@ import com.skala.helpdesk.tools.ToolCallLimitExceededException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.SignalType;
 
 /**
  * 담당: A(첫 번째 책임자) · 리뷰: B — Phase 3(p.316)·Phase 5(p.319)·Phase 6(p.320)·Phase 8.
@@ -143,8 +144,9 @@ public class HelpDeskService {
     }
 
     /**
-     * 실패한 시도가 남긴 사용자 메시지를 지우고 호출 직전 상태로 되돌린다. 세 실패 경로
-     * ({@link #ask} 참고) 모두 이 메서드 하나로 복구해 빠짐을 막는다.
+     * 실패한 시도가 남긴 사용자 메시지를 지우고 호출 직전 상태로 되돌린다. 동기 경로의 세
+     * 실패 경로({@link #ask})와 스트리밍 종료 경로({@link #streamEvents}) 모두 이 메서드
+     * 하나로 복구해 빠짐을 막는다 — 실제로 스트리밍 쪽이 오랫동안 빠져 있었다.
      */
     private void restoreMemory(String conversationId, List<Message> beforeAttempt) {
         chatMemory.clear(conversationId);
@@ -212,16 +214,43 @@ public class HelpDeskService {
      * 방법이 없다. 오류는 그대로 {@code onError}로 전파한다 — {@code error} 이벤트에 실을
      * traceId는 MDC 기반이라 리액티브 스레드에서 못 만든다({@link StreamEvent} Javadoc
      * 참고), Controller가 HTTP 스레드에서 캡처해 붙인다.
+     *
+     * <p><b>실패로 끝나면 메모리를 되돌린다</b> — {@link #ask}와 같은 이유이고, 여기에는
+     * 오랫동안 빠져 있었다. {@code MessageChatMemoryAdvisor#before()}가 질문을 즉시
+     * 저장하는데 스트림이 죽어도 되돌리는 코드가 없어서 <b>답변 없는 질문</b>이 남았다.
+     *
+     * <p>통합 실측으로 확인한 것(2026-08-22, docs/검증-시나리오.md):
+     * <ul>
+     *   <li>모델 오류(토큰 0개)·타임아웃·클라이언트 연결 끊김 <b>세 경우 모두</b> 메모리에
+     *       질문 1건만 남았다.</li>
+     *   <li><b>토큰이 96개나 나간 뒤 끊어도 assistant 메시지는 저장되지 않는다.</b> 그래서
+     *       "사용자가 일부라도 본 턴은 남긴다"는 선택지가 성립하지 않는다 — 남겨 봐야 질문만
+     *       있는 반쪽 턴이다.</li>
+     *   <li>그 상태에서 같은 세션에 "방금 설명해준 거 다시 정리해줘"를 보내니 메모리가
+     *       {@code USER → USER → ASSISTANT}가 되고, 모델이 가리킬 답변을 찾지 못해
+     *       "정확한 규정을 확인할 수 없습니다"로 답했다. 실제로 다음 턴이 깨진다.</li>
+     * </ul>
+     *
+     * <p><b>{@code doOnError}가 아니라 {@code doFinally}인 이유</b> — 타임아웃은 이 메서드
+     * 바깥, {@code ChatController}의 {@code .timeout(streamTimeout)}에 걸려 있다. 그래서
+     * 타임아웃과 클라이언트 연결 끊김은 여기서 오류가 아니라 <b>취소</b>로 보인다.
+     * {@code doOnError}만 붙이면 셋 중 둘을 놓친다. 정상 완료({@code ON_COMPLETE})가
+     * 아닌 모든 종료에서 되돌린다 — 정상 대화까지 지우면 안 되므로 이 조건이 핵심이다.
+     *
+     * <p>스냅샷은 반드시 {@code Flux.defer} <b>안</b>에서 뜬다. 밖에 두면 동시 요청이 서로의
+     * 스냅샷을 보고 남의 대화를 복구한다(아래 요청 단위 상태들과 같은 이유).
      */
     public Flux<StreamEvent> streamEvents(String question, String studentId, String sessionId) {
+        String conversationId = conversationId(studentId, sessionId);
         return Flux.defer(() -> {
             AtomicBoolean toolUsed = new AtomicBoolean(false);
             StringBuilder answer = new StringBuilder();
             AtomicReference<ChatClientResponse> responseForSources = new AtomicReference<>();
             AtomicInteger toolCallCounter = new AtomicInteger(0);
+            List<Message> beforeAttempt = chatMemory.get(conversationId);
 
             return chat.prompt().user(question)
-                    .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId(studentId, sessionId)))
+                    .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
                     .toolContext(Map.of(
                             "studentId", studentId,
                             "toolUsed", toolUsed,
@@ -241,7 +270,13 @@ public class HelpDeskService {
                                 ? List.of()
                                 : sourcesFrom(answer.toString(), response);
                         return Flux.just(new Sources(sources), new Done(toolUsed.get()));
-                    }));
+                    }))
+                    .doFinally(signal -> {
+                        if (signal != SignalType.ON_COMPLETE) {
+                            log.warn("스트림이 정상 종료되지 않아 메모리를 되돌립니다 signal={}", signal);
+                            restoreMemory(conversationId, beforeAttempt);
+                        }
+                    });
         });
     }
 
