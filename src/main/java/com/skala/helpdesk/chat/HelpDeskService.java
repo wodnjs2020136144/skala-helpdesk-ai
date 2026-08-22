@@ -5,6 +5,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,6 +51,9 @@ public class HelpDeskService {
 
     private static final Logger log = LoggerFactory.getLogger(HelpDeskService.class);
     private static final String NO_EVIDENCE_MESSAGE = "정확한 규정을 확인할 수 없습니다";
+
+    /** 첫 문장의 끝 — 마침표·물음표·느낌표 또는 줄바꿈({@link #firstSentenceOf}). */
+    private static final Pattern SENTENCE_BOUNDARY = Pattern.compile("[.!?]|\\R");
 
     private final ChatClient chat;
     private final ChatMemory chatMemory;
@@ -334,14 +339,37 @@ public class HelpDeskService {
     }
 
     /**
-     * 모델이 근거 없음 계약으로 답했다면 유사도 임계값을 넘은 무관 문서를
-     * 응답 출처로 노출하지 않는다. 시스템 프롬프트가 이 문구를 근거 없음의
-     * 표준 응답으로 정의한다.
+     * 모델이 근거 없음 계약으로 답했다면 유사도 임계값을 넘은 무관 문서를 응답 출처로
+     * 노출하지 않는다. 시스템 프롬프트가 이 문구를 근거 없음의 표준 응답으로 정의한다.
+     *
+     * <p><b>왜 {@code contains}로는 안 되는가</b> — 처음에는 답변 어디에든 이 문구가 있으면
+     * 출처를 지웠다. 그러면 <b>정답을 말한 뒤 덧붙인 헤지</b>에도 걸린다: "공학사과정은
+     * 21학점입니다. … 다만 그 외 과정은 정확한 규정을 확인할 수 없습니다"처럼 답하면
+     * 근거를 제대로 인용하고도 출처가 통째로 사라진다. 사용자에게는 근거 없이 답한 것처럼
+     * 보이고, Golden Set에서도 출처 판정만 실패한다.
+     * {@code docs/골든셋-평가.md}에 한계로 적어 뒀던 문제다.
+     *
+     * <p><b>첫 문장으로 판정하는 근거</b>(실측 2026-08-22) — 시스템 프롬프트가 "확실하지
+     * 않으면 …라고 답하세요"로 지시하므로 근거 없음 응답은 이 문구로 답을 <b>연다</b>.
+     * 근거 없음 문항(NE-01·02·03)을 3회씩 호출해 문구가 나온 <b>7건 모두 첫 문장</b>이었다.
+     * 반면 헤지는 본문을 답한 뒤 뒤에 붙는다. 그래서 첫 문장만 본다.
      */
     protected List<Source> sourcesFrom(String answer, ChatClientResponse response) {
-        if (answer != null && answer.contains(NO_EVIDENCE_MESSAGE)) {
-            return List.of();
-        }
-        return sourcesFrom(response);
+        return answeredWithoutEvidence(answer) ? List.of() : sourcesFrom(response);
+    }
+
+    /** 근거 없음 표준 응답으로 답을 열었는지 — {@link #sourcesFrom(String, ChatClientResponse)} 참고. */
+    private static boolean answeredWithoutEvidence(String answer) {
+        return answer != null && firstSentenceOf(answer).contains(NO_EVIDENCE_MESSAGE);
+    }
+
+    /**
+     * 첫 문장을 끊어 낸다. 문장 부호가 없으면 답변 전체를 첫 문장으로 본다(한 문장짜리
+     * 응답). 쉼표는 경계로 보지 않는다 — "죄송하지만, 정확한 규정을 …"도 근거 없음이다.
+     */
+    private static String firstSentenceOf(String answer) {
+        String trimmed = answer.strip();
+        Matcher boundary = SENTENCE_BOUNDARY.matcher(trimmed);
+        return boundary.find() ? trimmed.substring(0, boundary.end()) : trimmed;
     }
 }

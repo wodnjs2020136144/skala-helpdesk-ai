@@ -125,6 +125,58 @@ class HelpDeskServiceTest {
         assertThat(sources).isEmpty();
     }
 
+    /**
+     * 실측에서 잡은 결함(2026-08-22) — 근거 없음 판정을 {@code answer.contains(문구)}로 하면
+     * <b>정답을 말한 뒤 덧붙인 헤지</b>에도 걸려 출처가 통째로 사라진다. 사용자에게는
+     * 근거 없이 답한 것처럼 보이고, Golden Set에서도 출처 판정만 실패한다.
+     *
+     * <p>근거 없음 응답은 표준 문구로 답을 열지만(NE 문항 실측 7/7이 첫 문장), 헤지는
+     * 본문 뒤에 붙는다 — 그래서 첫 문장으로만 판정한다.
+     */
+    @Test
+    void 정답을_말한_뒤_덧붙인_헤지_문구는_출처를_지우지_않는다() {
+        HelpDeskService service = new HelpDeskService(null, null, null, null);
+        Document evidence = new Document("제12조(수강신청 제한)",
+                Map.of("source", "학사운영에관한규칙.pdf", "version", "2026-04-01"));
+        ChatClientResponse response = responseWithDocuments(List.of(evidence));
+
+        List<Source> sources = service.sourcesFrom(
+                "공학사과정 학생의 기본 수강신청 상한은 21학점입니다. 직전 학기 평점평균이 3.5 이상이면"
+                        + " 최대 24학점까지 신청할 수 있습니다. 다만 그 외 과정에 대해서는"
+                        + " 정확한 규정을 확인할 수 없습니다.",
+                response);
+
+        assertThat(sources).containsExactly(new Source("학사운영에관한규칙.pdf", "2026-04-01"));
+    }
+
+    @Test
+    void 근거_없음_문구로_답을_열면_뒤에_안내가_붙어도_출처를_지운다() {
+        HelpDeskService service = new HelpDeskService(null, null, null, null);
+        Document unrelated = new Document("무관한 학칙 본문",
+                Map.of("source", "한국기술교육대학교_학칙.pdf", "version", "2026-03-31"));
+        ChatClientResponse response = responseWithDocuments(List.of(unrelated));
+
+        List<Source> sources = service.sourcesFrom(
+                "정확한 규정을 확인할 수 없습니다. 학사팀에 문의하시면 정확한 안내를 받을 수 있습니다.",
+                response);
+
+        assertThat(sources).isEmpty();
+    }
+
+    /** 쉼표는 문장 경계가 아니다 — 사과를 앞세운 근거 없음 응답도 같게 처리한다. */
+    @Test
+    void 사과가_앞에_붙은_근거_없음_응답도_출처를_지운다() {
+        HelpDeskService service = new HelpDeskService(null, null, null, null);
+        Document unrelated = new Document("무관한 본문",
+                Map.of("source", "장학금에관한규칙.pdf", "version", "2026-05-01"));
+        ChatClientResponse response = responseWithDocuments(List.of(unrelated));
+
+        List<Source> sources = service.sourcesFrom(
+                "죄송하지만, 정확한 규정을 확인할 수 없습니다.", response);
+
+        assertThat(sources).isEmpty();
+    }
+
     @Test
     void 근거가_있는_응답은_검색_출처를_그대로_반환한다() {
         HelpDeskService service = new HelpDeskService(null, null, null, null);
