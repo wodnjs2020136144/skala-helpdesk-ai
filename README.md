@@ -22,16 +22,20 @@
 (B 소유)는 A가 RAG 연결을 검토한다 — 전체 표는 `docs/분업-역할표.md`의 "파일 충돌
 방지 규칙" 참고.
 
-## 지금 상태 — 스캐폴드
+## 지금 상태 — Phase 1~8 구현 완료
 
-**부팅은 되지만 Phase별 학습 지점은 비어 있다.** 아래 표시가 붙은 파일이 TODO다.
+출발점은 `TODO(A, Phase N)` / `TODO(B, Phase N)` 마커가 박힌 스캐폴드였다. 지금은 그
+마커가 **하나도 남아 있지 않고**(`grep -rn "TODO(" src/main/java`로 확인), RAG 답변·
+Tool 응답·인증·감사·계측·폴백이 모두 실제로 동작한다.
 
-- `TODO(A, Phase N)` — A 담당
-- `TODO(B, Phase N)` — B 담당
+- `./gradlew build` — 단위·통합 테스트 전체(모델을 호출하지 않는다)
+- `./gradlew goldenSetTest` — 실제 OpenAI·pgvector로 20문항 평가. 키와 실행 중인
+  pgvector가 필요하다. 결과는 `build/reports/golden-set/results.md`.
 
-TODO는 예외를 던지지 않고 최소 반환값(플레이스홀더 문자열·빈 목록 등)으로 채워져
-있다 — 컴파일은 통과하고 앱도 뜨지만, 실제 RAG 답변·Tool 응답은 채워 넣기 전까지
-의미 없는 문구가 나온다. 그게 정상 출발선이다.
+남은 것과 후속 과제는 [`docs/검증-시나리오.md`](docs/검증-시나리오.md)·
+[`docs/레드팀-체크리스트.md`](docs/레드팀-체크리스트.md)·
+[`docs/골든셋-평가.md`](docs/골든셋-평가.md)에 `☐`로 표시돼 있다 —
+**측정하지 않은 항목을 통과로 적지 않는 것**이 이 리포의 기록 원칙이다.
 
 ## 실행
 
@@ -53,16 +57,24 @@ SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:15432/helpdesk ./gradlew bootR
 Swagger UI — <http://localhost:8080/swagger-ui.html>
 Health — <http://localhost:8080/actuator/health>
 
+Phase 7부터 인증이 걸려 있다 — 인증 없이 부르면 401이다. 아래 계정은 로컬 재현용
+기본값이고 `HELPDESK_STUDENT_PASSWORD`·`HELPDESK_ADMIN_PASSWORD`로 교체한다.
+
 ```bash
-curl -X POST localhost:8080/api/chat -H 'Content-Type: application/json' \
+curl -u 2021001:student -X POST localhost:8080/api/chat -H 'Content-Type: application/json' \
      -d '{"question":"졸업 학점 요건이 어떻게 돼요?","sessionId":"s1"}'
-curl localhost:8080/api/admin/withdrawal-requests/pending
+curl -u admin:admin localhost:8080/api/admin/withdrawal-requests/pending
+
+# 관리자 청크 진단 — 한글 질의는 반드시 URL 인코딩한다(그냥 붙이면 400)
+curl -u admin:admin -G localhost:8080/api/admin/chunks \
+     --data-urlencode "q=졸업 요건" --data-urlencode "topK=10" --data-urlencode "threshold=0"
 ```
 
 ## 검증
 
 - [`docs/검증-시나리오.md`](docs/검증-시나리오.md) — 완료 시나리오 7종 체크리스트
 - [`docs/레드팀-체크리스트.md`](docs/레드팀-체크리스트.md) — 레드팀 10종
+- [`docs/골든셋-평가.md`](docs/골든셋-평가.md) — Phase 8 Golden Set 20문항·합격 기준
 - [`http/samples.http`](http/samples.http) — 위 시나리오의 요청 샘플(REST Client 확장으로 실행)
 
 ## 패키지 구조
